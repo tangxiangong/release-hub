@@ -37,7 +37,7 @@ pub struct UpdaterBuilder {
     app_name: String,
     github_owner: String,
     github_repo: String,
-    current_version: Version,
+    current_version: String,
     executable_path: Option<PathBuf>,
     headers: HeaderMap,
     timeout: Option<Duration>,
@@ -54,7 +54,7 @@ impl UpdaterBuilder {
     /// - `github_owner`/`github_repo`: Repository to query releases from.
     pub fn new(
         app_name: &str,
-        current_version: Version,
+        current_version: &str,
         github_owner: &str,
         github_repo: &str,
     ) -> Self {
@@ -62,7 +62,7 @@ impl UpdaterBuilder {
             installer_args: Vec::new(),
             current_exe_args: Vec::new(),
             app_name: app_name.to_owned(),
-            current_version,
+            current_version: current_version.to_owned(),
             executable_path: None,
             github_owner: github_owner.to_owned(),
             github_repo: github_repo.to_owned(),
@@ -156,9 +156,11 @@ impl UpdaterBuilder {
 
         let github_client = GitHubClient::new(&self.github_owner, &self.github_repo);
 
+        let current_version = Version::parse(&self.current_version)?;
+
         Ok(Updater {
             app_name: self.app_name,
-            current_version: self.current_version,
+            current_version,
             proxy: self.proxy,
             installer_args: self.installer_args,
             current_exe_args: self.current_exe_args,
