@@ -37,7 +37,7 @@ Add to your Cargo.toml:
 
 ```toml
 [dependencies]
-release-hub = { version = "0.1" }
+release-hub = "*"
 ```
 
 Basic usage:
@@ -50,7 +50,7 @@ use semver::Version;
 async fn main() -> release_hub::Result<()> {
     let updater = UpdaterBuilder::new(
         "MyApp",                       // Application name (for temp files / logs)
-        Version::parse("0.1.0").unwrap(), // Current version
+        "0.1.0",                       // Current version
         "owner",                       // GitHub owner
         "repo",                        // GitHub repo
     )
@@ -95,7 +95,7 @@ Example:
 use http::header::{AUTHORIZATION, HeaderValue};
 use url::Url;
 
-let updater = UpdaterBuilder::new("MyApp", Version::parse("0.1.0").unwrap(), "owner", "repo")
+let updater = UpdaterBuilder::new("MyApp", "0.1.0", "owner", "repo")
     .header(AUTHORIZATION, HeaderValue::from_static("token OAUTH_OR_PAT"))?
     .proxy(Url::parse("http://proxy.local:8080").unwrap())
     .timeout(std::time::Duration::from_secs(60))
@@ -125,14 +125,10 @@ let updater = UpdaterBuilder::new("MyApp", Version::parse("0.1.0").unwrap(), "ow
 - Q: How are assets matched?
   A: Filenames are inspected for OS and arch markers, and known extensions are matched: `.app.zip`, `.dmg`, `.exe`, `.msi`.
 
-## Examples
-
-See the snippets above. You can also run the included test in `src/github.rs` to print assets for a repository and validate matching logic.
-
 ## Projects using this crate
 
-- [tangxiangong/bibcitex](https://github.com/tangxiangong/bibcitex)
-- [tangxiangong/fenban](https://github.com/tangxiangong/fenban)
+- [bibcitex](https://github.com/tangxiangong/bibcitex)
+- [fenban](https://github.com/tangxiangong/fenban)
 
 ---
 
