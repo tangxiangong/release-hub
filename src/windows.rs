@@ -9,16 +9,16 @@
 use crate::{Error, Result, Updater};
 use fs_err as fs;
 use std::{
-    ffi::{OsStr, OsString},
+    ffi::OsString,
     path::PathBuf,
     sync::{Mutex, OnceLock},
     thread,
     time::Duration,
 };
-use windows_sys::{
-    Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOW},
-    w,
-};
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOW;
+use windows::core::{HSTRING, w};
 
 type WindowsUpdaterType = (PathBuf, Option<tempfile::TempPath>);
 static UPDATER_FILE: OnceLock<OsString> = OnceLock::new();
@@ -51,19 +51,21 @@ impl Updater {
             return Err(Error::InvalidUpdaterFormat);
         }
 
-        let file = encode_wide(file);
+        // Open the installer for manual installation with admin privileges if needed
+        let file_hstring: HSTRING = file.clone().into();
 
         // Open the installer for manual installation with admin privileges if needed
         let result = unsafe {
             ShellExecuteW(
-                std::ptr::null_mut(),
+                Some(HWND::default()),
                 w!("runas"), // Request administrator privileges for installation
-                file.as_ptr(),
-                std::ptr::null_mut(),
-                std::ptr::null(),
+                &file_hstring,
+                w!(""),
+                w!("."),
                 SW_SHOW,
             )
-        } as i32;
+        }
+        .0 as i32;
 
         // Check the result of ShellExecuteW
         // Values <= 32 indicate an error
@@ -161,13 +163,4 @@ impl Updater {
 
         Ok((temp_path, Some(temp)))
     }
-}
-
-fn encode_wide(string: impl AsRef<OsStr>) -> Vec<u16> {
-    use std::os::windows::ffi::OsStrExt;
-    string
-        .as_ref()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect()
 }
