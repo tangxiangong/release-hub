@@ -1,0 +1,50 @@
+[package]
+name = "release-hub"
+version = "0.1.0"
+authors = ["tangxiangong <tangxiangong@gmail.com>"]
+edition = "2024"
+description = "A simple updater for Rust GUI applications"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tangxiangong/release-hub"
+readme = "README.md"
+categories = ["gui"]
+keywords = ["updater"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+default-target = "x86_64-unknown-linux-gnu"
+targets = []
+
+[dependencies]
+futures-util = "0.3"
+http = "1"
+octocrab = "0.47"
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "json",
+    "stream",
+] }
+semver = { version = "1", features = ["serde"] }
+tempfile = "3"
+thiserror = "2"
+url = { version = "2", features = ["serde"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
+
+[target."cfg(target_os = \"windows\")".dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+] }
+
+[target."cfg(target_os = \"macos\")".dependencies]
+flate2 = "1"
+osakit = { version = "0.3", features = ["full"] }
+zip = { version = "6", default-features = false, features = [
+    "deflate",
+    "bzip2",
+    "time",
+] }

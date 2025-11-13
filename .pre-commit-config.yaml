@@ -1,0 +1,35 @@
+fail_fast: false
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt --all
+        description: Format files with rustfmt.
+        entry: bash -c 'cargo fmt -- --check'
+        language: rust
+        files: \.rs$
+        args: []
+      - id: cargo-clippy
+        name: cargo clippy
+        description: Lint rust sources
+        entry: bash -c 'cargo clippy --all-targets --all-features --tests --benches -- -D warnings'
+        language: rust
+        files: \.rs$
+        pass_filenames: false
+      - id: cargo-sort
+        name: cargo sort
+        description: Sort dependencies in Cargo.toml
+        entry: bash -c 'cargo sort -w -o workspace,package'
+        language: rust
+        files: Cargo.toml
+        args: []
