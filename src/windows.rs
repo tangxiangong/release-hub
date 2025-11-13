@@ -6,13 +6,8 @@
 // Copyright (c) 2015 - Present - The Tauri Programme within The Commons Conservancy.
 // Licensed under MIT OR MIT/Apache-2.0
 
-// Windows installation and relaunch implementation.
-//
-// Writes the downloaded installer to a temporary location and launches it with
-// elevation using `ShellExecuteW` and the `runas` verb. Handles common error
-// cases like access denied or user-cancelled elevation.
-
 use crate::{Error, Result, Updater};
+use fs_err as fs;
 use std::{
     ffi::{OsStr, OsString},
     path::PathBuf,
@@ -122,7 +117,7 @@ impl Updater {
                         .unwrap_or_else(|| "unknown".to_string())
                 ));
 
-                std::fs::create_dir_all(&fallback_dir)?;
+                fs::create_dir_all(&fallback_dir)?;
                 Ok(fallback_dir)
             }
         }
@@ -160,7 +155,7 @@ impl Updater {
         let temp_path = temp.to_path_buf();
 
         // Verify the file was written correctly
-        if !temp_path.exists() || std::fs::metadata(&temp_path)?.len() != bytes.len() as u64 {
+        if !temp_path.exists() || fs::metadata(&temp_path)?.len() != bytes.len() as u64 {
             return Err(crate::Error::InvalidUpdaterFormat);
         }
 

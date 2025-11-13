@@ -6,30 +6,28 @@
 // Copyright (c) 2015 - Present - The Tauri Programme within The Commons Conservancy.
 // Licensed under MIT OR MIT/Apache-2.0
 
-// macOS installation and relaunch implementation.
-//
-// Handles extracting `.app.zip` bundles, atomically swapping the installed
-// application, and elevating privileges through AppleScript when necessary.
-
 use crate::{Error, Result, Updater};
+use fs_err as fs;
+use osakit::{Language, Script};
 use std::{
+    fs::Permissions,
     io::Cursor,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
+    process::Command,
 };
+use zip::ZipArchive;
 
 impl Updater {
     /// Extract ZIP file for macOS .app bundles
     fn extract_zip(&self, bytes: &[u8]) -> Result<Vec<PathBuf>> {
-        use std::os::unix::fs::PermissionsExt;
-        use zip::ZipArchive;
-
         let cursor = Cursor::new(bytes);
         let mut archive = ZipArchive::new(cursor)?;
         let mut extracted_files = Vec::new();
 
         // Create temp directory for extraction
         let tmp_extract_dir = tempfile::Builder::new()
-            .prefix("tauri_updated_app")
+            .prefix("rust_updated_app")
             .tempdir()?;
 
         for i in 0..archive.len() {
@@ -41,26 +39,26 @@ impl Updater {
 
             if file.name().ends_with('/') {
                 // Directory
-                std::fs::create_dir_all(&outpath)?;
+                fs::create_dir_all(&outpath)?;
                 // Set directory permissions if available
                 if let Some(mode) = file.unix_mode() {
-                    let permissions = std::fs::Permissions::from_mode(mode);
-                    std::fs::set_permissions(&outpath, permissions)?;
+                    let permissions = Permissions::from_mode(mode);
+                    fs::set_permissions(&outpath, permissions)?;
                 }
             } else {
                 // File
                 if let Some(p) = outpath.parent()
                     && !p.exists()
                 {
-                    std::fs::create_dir_all(p)?;
+                    fs::create_dir_all(p)?;
                 }
-                let mut outfile = std::fs::File::create(&outpath)?;
+                let mut outfile = fs::File::create(&outpath)?;
                 std::io::copy(&mut file, &mut outfile)?;
 
                 // Set file permissions if available, otherwise use default executable permissions for binaries
                 if let Some(mode) = file.unix_mode() {
-                    let permissions = std::fs::Permissions::from_mode(mode);
-                    std::fs::set_permissions(&outpath, permissions)?;
+                    let permissions = Permissions::from_mode(mode);
+                    fs::set_permissions(&outpath, permissions)?;
                 } else {
                     // If no permissions in ZIP, check if this is likely an executable file
                     let file_name = outpath.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -71,8 +69,8 @@ impl Updater {
                         || (!file_name.contains('.') && !path_str.contains("Contents/Resources/"))
                     {
                         // Set executable permissions (0o755 = rwxr-xr-x)
-                        let permissions = std::fs::Permissions::from_mode(0o755);
-                        std::fs::set_permissions(&outpath, permissions)?;
+                        let permissions = Permissions::from_mode(0o755);
+                        fs::set_permissions(&outpath, permissions)?;
                     }
                 }
             }
@@ -104,7 +102,7 @@ impl Updater {
             .tempdir()?;
 
         // Try to move the current app to backup
-        let move_result = std::fs::rename(
+        let move_result = fs::rename(
             &self.extract_path,
             tmp_backup_dir.path().join("current_app"),
         );
@@ -130,8 +128,7 @@ impl Updater {
                 backup = backup_path
             );
 
-            let mut script =
-                osakit::Script::new_from_source(osakit::Language::AppleScript, &apple_script);
+            let mut script = Script::new_from_source(Language::AppleScript, &apple_script);
             script.compile().expect("invalid AppleScript");
             let result = script.execute();
 
@@ -143,7 +140,7 @@ impl Updater {
                     backup = backup_path
                 );
                 let mut restore_script =
-                    osakit::Script::new_from_source(osakit::Language::AppleScript, &restore_script);
+                    Script::new_from_source(Language::AppleScript, &restore_script);
                 restore_script.compile().expect("invalid AppleScript");
                 let _ = restore_script.execute(); // Best effort restore
 
@@ -158,23 +155,23 @@ impl Updater {
 
             // Step 1: Move current app to backup (if it exists)
             if self.extract_path.exists() {
-                std::fs::rename(&self.extract_path, &backup_path)?;
+                fs::rename(&self.extract_path, &backup_path)?;
             }
 
             // Step 2: Move new app to target location
-            let move_result = std::fs::rename(app_path, &self.extract_path);
+            let move_result = fs::rename(app_path, &self.extract_path);
 
             if let Err(err) = move_result {
                 // If move failed, try to restore from backup
                 if backup_path.exists() {
-                    let _ = std::fs::rename(&backup_path, &self.extract_path); // Best effort restore
+                    let _ = fs::rename(&backup_path, &self.extract_path); // Best effort restore
                 }
                 return Err(err.into());
             }
 
             // Step 3: Remove backup if everything succeeded
             if backup_path.exists() {
-                let _ = std::fs::remove_dir_all(&backup_path); // Best effort cleanup
+                let _ = fs::remove_dir_all(&backup_path); // Best effort cleanup
             }
         }
 
@@ -185,11 +182,11 @@ impl Updater {
     fn move_extracted_files(&self, extract_dir: &Path) -> Result<()> {
         // Create temp directory for backup
         let tmp_backup_dir = tempfile::Builder::new()
-            .prefix("tauri_current_app")
+            .prefix("rust_current_app")
             .tempdir()?;
 
         // Try to move the current app to backup
-        let move_result = std::fs::rename(
+        let move_result = fs::rename(
             &self.extract_path,
             tmp_backup_dir.path().join("current_app"),
         );
@@ -212,8 +209,7 @@ impl Updater {
                 new = extract_dir.display()
             );
 
-            let mut script =
-                osakit::Script::new_from_source(osakit::Language::AppleScript, &apple_script);
+            let mut script = Script::new_from_source(Language::AppleScript, &apple_script);
             script.compile().expect("invalid AppleScript");
             let result = script.execute();
 
@@ -226,10 +222,10 @@ impl Updater {
         } else {
             // Remove existing directory if it exists
             if self.extract_path.exists() {
-                std::fs::remove_dir_all(&self.extract_path)?;
+                fs::remove_dir_all(&self.extract_path)?;
             }
             // Move the new app to the target path
-            std::fs::rename(extract_dir, &self.extract_path)?;
+            fs::rename(extract_dir, &self.extract_path)?;
         }
 
         Ok(())
@@ -239,9 +235,7 @@ impl Updater {
         self.extract_zip(bytes)?;
 
         // Touch the app to update modification time
-        let _ = std::process::Command::new("touch")
-            .arg(&self.extract_path)
-            .status()?;
+        let _ = Command::new("touch").arg(&self.extract_path).status()?;
 
         Ok(())
     }
@@ -250,7 +244,7 @@ impl Updater {
         // Use 'open' command to launch the updated app in the background
         // The -n flag opens a new instance even if one is already running
         // The -a flag specifies the application to open
-        let _ = std::process::Command::new("open")
+        let _ = Command::new("open")
             .arg("-n")
             .arg(&self.extract_path)
             .spawn()?;

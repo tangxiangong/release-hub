@@ -16,8 +16,17 @@ mod error;
 pub use error::*;
 pub mod github;
 #[cfg(target_os = "macos")]
+/// macOS installation and relaunch implementation.
+///
+/// Handles extracting `.app.zip` bundles, atomically swapping the installed
+/// application, and elevating privileges through AppleScript when necessary.
 mod macos;
 #[cfg(target_os = "windows")]
+/// Windows installation and relaunch implementation.
+///
+/// Writes the downloaded installer to a temporary location and launches it with
+/// elevation using `ShellExecuteW` and the `runas` verb. Handles common error
+/// cases like access denied or user-cancelled elevation.
 mod windows;
 pub use github::*;
 pub mod utils;
