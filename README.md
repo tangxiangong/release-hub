@@ -1,6 +1,17 @@
-# release-hub
+<div align=center>
+<h1 aligh="center">
+ReleaseHub
+</h1>
+<p align="center">
+A simple, cross-platform auto-updater for Rust desktop GUI applications.
+</p>
+<p align="center">
+<a href="https://crates.io/crates/release-hub"> <img alt="Crates.io Version" src="https://img.shields.io/crates/v/release-hub?style=for-the-badge"> </a>
+<a href="https://docs.rs/release-hub"> <img alt="docs.rs" src="https://img.shields.io/docsrs/release-hub?style=for-the-badge"> </a>
+<img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/crates/l/release-hub?style=for-the-badge">
+</p>
+</div>
 
-Simple, cross-platform auto-updater for Rust desktop GUI applications.
 
 This crate helps your application check for the latest GitHub Releases and download/install the proper artifact for the current platform. It focuses on a minimal API surface, safe defaults, and a predictable end-user experience on macOS and Windows.
 
@@ -118,6 +129,11 @@ let updater = UpdaterBuilder::new("MyApp", Version::parse("0.1.0").unwrap(), "ow
 
 See the snippets above. You can also run the included test in `src/github.rs` to print assets for a repository and validate matching logic.
 
+## Projects using this crate
+
+- [tangxiangong/bibcitex](https://github.com/tangxiangong/bibcitex)
+- [tangxiangong/fenban](https://github.com/tangxiangong/fenban)
+
 ---
 
 ## Third-Party Code Attribution
@@ -125,7 +141,7 @@ See the snippets above. You can also run the included test in `src/github.rs` to
 - **Source**: [tauri-apps/tauri-plugin-updater](https://github.com/tauri-apps/plugins-workspace/tree/v2/plugins/updater)
 - **Author**: The Tauri Programme
 - **License**: [MIT](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/LICENSE_MIT) OR [MIT](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/LICENSE_MIT)/[Apache 2.0](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/LICENSE_APACHE-2.0)
-- **Usage**: Implement updater for Dioxus apps
+- **Usage**: Implement updater for Dioxus apps or any other Rust GUI applications
 - **Copyright**:
   ```
   Copyright (c) 2015 - Present - The Tauri Programme within The Commons Conservancy.
