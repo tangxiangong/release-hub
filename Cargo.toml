@@ -1,6 +1,6 @@
 [package]
 name = "release-hub"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["tangxiangong <tangxiangong@gmail.com>"]
 edition = "2024"
 description = "A simple updater for Rust GUI applications"
