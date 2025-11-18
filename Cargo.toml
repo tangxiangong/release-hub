@@ -11,7 +11,7 @@ categories = ["gui"]
 keywords = ["updater"]
 
 [dependencies]
-fs-err = "3.1"
+fs-err = "3.2"
 futures-util = "0.3"
 http = "1"
 octocrab = "0.47"
