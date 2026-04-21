@@ -49,7 +49,7 @@ impl Update {
         let artifact_name = self
             .download_url
             .path_segments()
-            .and_then(|segments| segments.filter(|segment| !segment.is_empty()).next_back())
+            .and_then(|mut segments| segments.rfind(|segment| !segment.is_empty()))
             .unwrap_or("release-hub-installer.bin");
         let artifact_path = staging_dir.path().join(artifact_name);
 

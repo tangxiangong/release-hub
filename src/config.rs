@@ -1,11 +1,15 @@
-use serde::{de::Error as DeError, Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, de::Error as DeError};
 use std::ffi::OsString;
 use url::Url;
 
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowsConfig {
-    #[serde(default, alias = "installer-args", deserialize_with = "deserialize_os_string")]
+    #[serde(
+        default,
+        alias = "installer-args",
+        deserialize_with = "deserialize_os_string"
+    )]
     pub installer_args: Vec<OsString>,
 }
 

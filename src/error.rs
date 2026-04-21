@@ -17,7 +17,9 @@ pub enum Error {
     InvalidHeaderValue(#[from] http::header::InvalidHeaderValue),
     #[error(transparent)]
     InvalidHeaderName(#[from] http::header::InvalidHeaderName),
-    #[error("Unsupported application architecture, expected one of `x86`, `x86_64`, `arm` or `aarch64`.")]
+    #[error(
+        "Unsupported application architecture, expected one of `x86`, `x86_64`, `arm` or `aarch64`."
+    )]
     UnsupportedArch,
     #[error("Unsupported OS, expected one of `linux`, `darwin` or `windows`.")]
     UnsupportedOs,

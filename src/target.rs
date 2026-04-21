@@ -79,7 +79,10 @@ impl SystemInfo {
 
 impl InstallerKind {
     pub fn from_path(path: &Path) -> Result<Self> {
-        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
         if name.ends_with(".AppImage") {
             Ok(Self::AppImage)
         } else if name.ends_with(".deb") {
