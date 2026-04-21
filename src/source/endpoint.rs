@@ -19,7 +19,11 @@ impl crate::ReleaseSource for EndpointSource {
             .first()
             .cloned()
             .ok_or_else(|| crate::Error::Network("no endpoints configured".into()))?;
-        let body = reqwest::get(endpoint).await?.text().await?;
+        let body = reqwest::get(endpoint)
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
         Ok(serde_json::from_str(&body)?)
     }
 }

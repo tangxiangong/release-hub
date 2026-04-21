@@ -1,7 +1,6 @@
 use httpmock::Method::GET;
 use httpmock::MockServer;
-use minisign_verify::{PublicKey, Signature};
-use release_hub::{EndpointSource, ReleaseSource, SourceRequest};
+use release_hub::{EndpointSource, ReleaseSource, SourceRequest, verify_minisign};
 use url::Url;
 
 #[tokio::test]
@@ -33,10 +32,31 @@ async fn endpoint_source_fetches_static_manifest() {
     assert_eq!(release.signature("linux-x86_64").unwrap(), "sig-linux");
 }
 
+#[tokio::test]
+async fn endpoint_source_surfaces_http_status_failures() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/latest.json");
+        then.status(500).body("internal error");
+    });
+
+    let source = EndpointSource::new(vec![Url::parse(&server.url("/latest.json")).unwrap()]);
+    let err = source
+        .fetch(&SourceRequest::new("linux-x86_64"))
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(err, release_hub::Error::Reqwest(http_err) if http_err.is_status() && http_err.status() == Some(reqwest::StatusCode::INTERNAL_SERVER_ERROR))
+    );
+}
+
 #[test]
 fn verifier_accepts_known_good_minisign_fixture() {
-    let public_key = PublicKey::decode(include_str!("fixtures/minisign/test.pub")).unwrap();
-    let signature = Signature::decode(include_str!("fixtures/minisign/test.sig")).unwrap();
-
-    public_key.verify(b"test", &signature, true).unwrap();
+    verify_minisign(
+        b"test",
+        include_str!("fixtures/minisign/test.pub"),
+        include_str!("fixtures/minisign/test.sig"),
+    )
+    .unwrap();
 }
