@@ -16,13 +16,19 @@ use crate::{
 #[derive(Debug, Clone)]
 struct FixtureRelease {
     version: String,
-    assets: Vec<Asset>,
+    assets: Vec<FixtureAsset>,
 }
 
 #[derive(Debug, Clone)]
-enum SignatureSource {
-    Download,
-    FixtureUrl,
+struct FixtureAsset {
+    name: String,
+    value: String,
+}
+
+#[derive(Debug, Clone)]
+enum SignatureSource<'a> {
+    Download(&'a Asset),
+    Fixture(&'a str),
 }
 
 pub struct GitHubSource {
@@ -64,8 +70,10 @@ impl GitHubSource {
                 version: version.into(),
                 assets: assets
                     .into_iter()
-                    .enumerate()
-                    .map(|(index, (name, url))| fixture_asset(index as u64 + 1, name, url))
+                    .map(|(name, value)| FixtureAsset {
+                        name: name.into(),
+                        value: value.into(),
+                    })
                     .collect(),
             }),
         }
@@ -90,6 +98,10 @@ fn fixture_asset(id: u64, name: &str, url: &str) -> Asset {
         "uploader": null
     }))
     .expect("fixture asset should deserialize")
+}
+
+fn fixture_download_asset(asset: &FixtureAsset, id: u64) -> Asset {
+    fixture_asset(id, &asset.name, &asset.value)
 }
 
 fn is_signature_asset(name: &str) -> bool {
@@ -117,7 +129,31 @@ fn select_target_asset<'a>(assets: &'a [Asset], target: &str) -> Result<&'a Asse
         .ok_or_else(|| Error::TargetNotFound(target.into()))
 }
 
+fn select_fixture_target_asset<'a>(assets: &'a [FixtureAsset], target: &str) -> Result<&'a FixtureAsset> {
+    let variants = target_variants(target);
+    assets
+        .iter()
+        .filter(|asset| !is_signature_asset(&asset.name))
+        .find(|asset| {
+            let name = asset.name.to_ascii_lowercase();
+            variants.iter().any(|variant| name.contains(variant))
+                && InstallerKind::from_path(Path::new(&asset.name)).is_ok()
+        })
+        .ok_or_else(|| Error::TargetNotFound(target.into()))
+}
+
 fn find_signature_asset<'a>(assets: &'a [Asset], name: &str) -> Option<&'a Asset> {
+    let sig_name = format!("{name}.sig");
+    let minisig_name = format!("{name}.minisig");
+    assets
+        .iter()
+        .find(|asset| asset.name == sig_name || asset.name == minisig_name)
+}
+
+fn find_fixture_signature_asset<'a>(
+    assets: &'a [FixtureAsset],
+    name: &str,
+) -> Option<&'a FixtureAsset> {
     let sig_name = format!("{name}.sig");
     let minisig_name = format!("{name}.minisig");
     assets
@@ -143,14 +179,14 @@ fn parse_pub_date(release: &Release) -> Result<Option<OffsetDateTime>> {
         .transpose()
 }
 
-async fn load_signature(signature_asset: &Asset, source: SignatureSource) -> Result<String> {
+async fn load_signature(source: SignatureSource<'_>) -> Result<String> {
     match source {
-        SignatureSource::Download => Ok(reqwest::get(signature_asset.browser_download_url.clone())
+        SignatureSource::Download(signature_asset) => Ok(reqwest::get(signature_asset.browser_download_url.clone())
             .await?
             .error_for_status()?
             .text()
             .await?),
-        SignatureSource::FixtureUrl => Ok(signature_asset.browser_download_url.to_string()),
+        SignatureSource::Fixture(signature) => Ok(signature.to_string()),
     }
 }
 
@@ -160,10 +196,9 @@ async fn build_remote_release_from_assets(
     notes: Option<String>,
     pub_date: Option<OffsetDateTime>,
     asset: &Asset,
-    signature_asset: &Asset,
-    signature_source: SignatureSource,
+    signature_source: SignatureSource<'_>,
 ) -> Result<RemoteRelease> {
-    let signature = load_signature(signature_asset, signature_source).await?;
+    let signature = load_signature(signature_source).await?;
     let platforms = HashMap::from([(
         target.to_string(),
         ReleaseManifestPlatform {
@@ -184,18 +219,18 @@ async fn build_remote_release_from_assets(
 impl ReleaseSource for GitHubSource {
     async fn fetch(&self, request: &SourceRequest) -> Result<RemoteRelease> {
         if let Some(fixture_release) = &self.fixture_release {
-            let asset = select_target_asset(&fixture_release.assets, &request.target)?;
-            let signature_asset = find_signature_asset(&fixture_release.assets, &asset.name)
+            let asset = select_fixture_target_asset(&fixture_release.assets, &request.target)?;
+            let signature_asset = find_fixture_signature_asset(&fixture_release.assets, &asset.name)
                 .ok_or_else(|| Error::MissingSignatureAsset(asset.name.clone()))?;
+            let download_asset = fixture_download_asset(asset, 1);
 
             return build_remote_release_from_assets(
                 &request.target,
                 &fixture_release.version,
                 None,
                 None,
-                asset,
-                signature_asset,
-                SignatureSource::FixtureUrl,
+                &download_asset,
+                SignatureSource::Fixture(&signature_asset.value),
             )
             .await;
         }
@@ -217,8 +252,7 @@ impl ReleaseSource for GitHubSource {
             release.body.clone(),
             pub_date,
             asset,
-            signature_asset,
-            SignatureSource::Download,
+            SignatureSource::Download(signature_asset),
         )
         .await
     }

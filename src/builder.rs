@@ -21,7 +21,7 @@ use std::{
     env::current_exe,
     ffi::OsString,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use url::Url;
@@ -243,6 +243,7 @@ impl UpdaterBuilder {
             extract_path,
             installer_args,
             version_comparator: self.version_comparator,
+            latest_release_version: Mutex::new(None),
         })
     }
 }
@@ -261,16 +262,20 @@ pub struct Updater {
     pub extract_path: PathBuf,
     pub installer_args: Vec<OsString>,
     pub version_comparator: Option<VersionComparator>,
+    latest_release_version: Mutex<Option<Version>>,
 }
 
 impl Updater {
     pub fn latest_version(&self) -> Option<Version> {
-        None
+        self.latest_release_version.lock().ok()?.clone()
     }
 
     pub async fn check(&self) -> Result<Option<Update>> {
         let request = SourceRequest::new(self.target.clone());
         let release = self.source.fetch(&request).await?;
+        if let Ok(mut latest_release_version) = self.latest_release_version.lock() {
+            *latest_release_version = Some(release.version.clone());
+        }
 
         let has_update = if let Some(comparator) = &self.version_comparator {
             comparator(self.current_version.clone(), release.clone())

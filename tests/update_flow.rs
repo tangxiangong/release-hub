@@ -68,8 +68,10 @@ async fn check_returns_update_when_remote_version_is_newer() {
         .build()
         .unwrap();
 
+    assert_eq!(updater.latest_version(), None);
     let update = updater.check().await.unwrap();
     assert!(update.is_some());
+    assert_eq!(updater.latest_version(), Some(Version::parse("1.0.1").unwrap()));
 }
 
 #[tokio::test]

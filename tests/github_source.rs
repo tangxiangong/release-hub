@@ -1,5 +1,5 @@
 use release_hub::source::github::GitHubSource as ModuleGitHubSource;
-use release_hub::{ReleaseSource, SourceRequest};
+use release_hub::{ReleaseSource, SourceRequest, verify_minisign};
 
 #[tokio::test]
 async fn github_source_module_path_pairs_asset_with_signature() {
@@ -14,7 +14,7 @@ async fn github_source_module_path_pairs_asset_with_signature() {
             ),
             (
                 "app-linux-x86_64.AppImage.sig",
-                "https://example.com/app.AppImage.sig",
+                include_str!("fixtures/minisign/test.sig"),
             ),
         ],
     );
@@ -27,6 +27,12 @@ async fn github_source_module_path_pairs_asset_with_signature() {
         release.download_url("linux-x86_64").unwrap().as_str(),
         "https://example.com/app.AppImage"
     );
+    verify_minisign(
+        b"test",
+        include_str!("fixtures/minisign/test.pub"),
+        release.signature("linux-x86_64").unwrap(),
+    )
+    .unwrap();
 }
 
 #[tokio::test]
