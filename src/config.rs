@@ -19,6 +19,12 @@ pub struct Config {
     pub windows: Option<WindowsConfig>,
 }
 
+impl Config {
+    pub fn validate(&self) -> crate::Result<()> {
+        validate_endpoints(&self.endpoints, self.dangerous_insecure_transport_protocol)
+    }
+}
+
 fn deserialize_os_string<'de, D>(deserializer: D) -> Result<Vec<OsString>, D::Error>
 where
     D: Deserializer<'de>,

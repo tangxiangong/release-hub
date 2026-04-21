@@ -44,3 +44,15 @@ fn rejects_http_endpoints_in_release_config() {
     let err = serde_json::from_str::<Config>(json).unwrap_err();
     assert!(err.to_string().contains("https"));
 }
+
+#[test]
+fn rejects_http_endpoints_via_config_validate() {
+    let config = Config {
+        endpoints: vec![Url::parse("http://localhost:3000/latest.json").unwrap()],
+        pubkey: "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3".into(),
+        ..Default::default()
+    };
+
+    let err = config.validate().unwrap_err();
+    assert!(err.to_string().contains("https"));
+}
