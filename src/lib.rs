@@ -1,5 +1,4 @@
-//! Source-agnostic updater building blocks for release metadata discovery,
-//! update checks, downloads, and platform-specific installation hooks.
+#![doc = include_str!("../README.md")]
 
 // Copyright (c) 2015 - Present - The Tauri Programme within The Commons Conservancy.
 //
