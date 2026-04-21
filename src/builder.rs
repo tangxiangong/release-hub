@@ -302,6 +302,8 @@ impl Updater {
     pub async fn check(&self) -> Result<Option<Update>> {
         let request = SourceRequest::new(self.target.clone());
         let release = self.source.fetch(&request).await?;
+        let mut headers = release.download_headers.clone();
+        headers.extend(self.headers.clone());
         if let Ok(mut latest_release_version) = self.latest_release_version.lock() {
             *latest_release_version = Some(release.version.clone());
         }
@@ -328,7 +330,7 @@ impl Updater {
             installer_kind: InstallerKind::from_path(Path::new(
                 release.download_url(&self.target)?.path(),
             ))?,
-            headers: self.headers.clone(),
+            headers,
             timeout: self.timeout,
             proxy: self.proxy.clone(),
             no_proxy: self.no_proxy,

@@ -2,6 +2,8 @@ use crate::{
     Error, InstallerKind, ReleaseManifestPlatform, ReleaseSource, RemoteRelease,
     RemoteReleaseInner, Result, SourceFuture, SourceRequest,
 };
+use http::header::{ACCEPT, AUTHORIZATION};
+use http::{HeaderMap, HeaderValue};
 use octocrab::{
     Octocrab,
     models::repos::{Asset, Release},
@@ -42,6 +44,7 @@ pub struct GitHubSource {
     owner: String,
     repo: String,
     fixture_release: Option<FixtureRelease>,
+    asset_headers: HeaderMap,
 }
 
 impl GitHubSource {
@@ -52,6 +55,44 @@ impl GitHubSource {
             owner: owner.into(),
             repo: repo.into(),
             fixture_release: None,
+            asset_headers: HeaderMap::new(),
+        }
+    }
+
+    /// Creates a GitHub-backed source that authenticates requests with a personal access token.
+    ///
+    /// This enables private-repository releases and higher GitHub API rate limits. The same
+    /// token is propagated to release-asset and signature downloads handled by the updater.
+    pub fn with_auth_token(
+        owner: impl Into<String>,
+        repo: impl Into<String>,
+        token: impl AsRef<str>,
+    ) -> Result<Self> {
+        let token = token.as_ref();
+        let client = Octocrab::builder().personal_token(token).build().unwrap();
+        let mut asset_headers = HeaderMap::new();
+        asset_headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {token}"))?,
+        );
+
+        Ok(Self {
+            client,
+            owner: owner.into(),
+            repo: repo.into(),
+            fixture_release: None,
+            asset_headers,
+        })
+    }
+
+    /// Creates a GitHub-backed source from a custom Octocrab client.
+    pub fn with_client(owner: impl Into<String>, repo: impl Into<String>, client: Octocrab) -> Self {
+        Self {
+            client,
+            owner: owner.into(),
+            repo: repo.into(),
+            fixture_release: None,
+            asset_headers: HeaderMap::new(),
         }
     }
 
@@ -82,6 +123,7 @@ impl GitHubSource {
                     })
                     .collect(),
             }),
+            asset_headers: HeaderMap::new(),
         }
     }
 
@@ -104,6 +146,7 @@ impl GitHubSource {
                 None,
                 &download_asset,
                 SignatureSource::Fixture(&signature_asset.value),
+                &HeaderMap::new(),
             )
             .await;
         }
@@ -126,6 +169,7 @@ impl GitHubSource {
             pub_date,
             asset,
             SignatureSource::Download(signature_asset),
+            &self.asset_headers,
         )
         .await
     }
@@ -233,10 +277,22 @@ fn parse_pub_date(release: &Release) -> Result<Option<OffsetDateTime>> {
         .transpose()
 }
 
-async fn load_signature(source: SignatureSource<'_>) -> Result<String> {
+async fn load_signature(source: SignatureSource<'_>, asset_headers: &HeaderMap) -> Result<String> {
     match source {
         SignatureSource::Download(signature_asset) => {
-            Ok(reqwest::get(signature_asset.browser_download_url.clone())
+            let download_url = if asset_headers.is_empty() {
+                signature_asset.browser_download_url.clone()
+            } else {
+                signature_asset.url.clone()
+            };
+
+            let mut headers = asset_headers.clone();
+            headers.insert(ACCEPT, HeaderValue::from_static("application/octet-stream"));
+
+            Ok(reqwest::Client::new()
+                .get(download_url)
+                .headers(headers)
+                .send()
                 .await?
                 .error_for_status()?
                 .text()
@@ -253,12 +309,18 @@ async fn build_remote_release_from_assets(
     pub_date: Option<OffsetDateTime>,
     asset: &Asset,
     signature_source: SignatureSource<'_>,
+    asset_headers: &HeaderMap,
 ) -> Result<RemoteRelease> {
-    let signature = load_signature(signature_source).await?;
+    let signature = load_signature(signature_source, asset_headers).await?;
+    let download_url = if asset_headers.is_empty() {
+        asset.browser_download_url.clone()
+    } else {
+        asset.url.clone()
+    };
     let platforms = HashMap::from([(
         target.to_string(),
         ReleaseManifestPlatform {
-            url: asset.browser_download_url.clone(),
+            url: download_url,
             signature,
         },
     )]);
@@ -268,5 +330,22 @@ async fn build_remote_release_from_assets(
         notes,
         pub_date,
         data: RemoteReleaseInner::Static { platforms },
+        download_headers: asset_headers.clone(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn with_auth_token_preserves_repository_identity() {
+        let source = GitHubSource::with_auth_token("owner-name", "repo-name", "test-token")
+            .expect("token-backed source should build");
+
+        assert_eq!(source.owner, "owner-name");
+        assert_eq!(source.repo, "repo-name");
+        assert!(source.fixture_release.is_none());
+        assert!(source.asset_headers.contains_key(AUTHORIZATION));
+    }
 }

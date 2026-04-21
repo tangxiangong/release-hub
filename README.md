@@ -122,6 +122,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+For private repositories or to avoid anonymous rate limits, build the source with a
+personal access token:
+
+```rust,no_run
+use release_hub::{Config, GitHubSource, UpdaterBuilder};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let token = std::env::var("GITHUB_TOKEN")?;
+    let config = Config {
+        pubkey: "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3".into(),
+        ..Default::default()
+    };
+
+    let source = GitHubSource::with_auth_token("owner", "repo", token)?;
+    let updater = UpdaterBuilder::new("MyApp", "1.0.0", config)
+        .source(Box::new(source))
+        .build()?;
+
+    let _ = updater;
+    Ok(())
+}
+```
+
 ## Configuration notes
 
 - `header(...)` and `headers(...)` let you attach authentication or cache-control headers

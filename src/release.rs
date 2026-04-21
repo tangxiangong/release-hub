@@ -41,6 +41,9 @@ pub struct RemoteRelease {
     /// Target-specific artifact metadata.
     #[serde(flatten)]
     pub data: RemoteReleaseInner,
+    /// Additional headers required when downloading the selected artifact.
+    #[serde(skip)]
+    pub download_headers: HeaderMap,
 }
 
 impl<'de> Deserialize<'de> for RemoteRelease {
@@ -87,6 +90,7 @@ impl<'de> Deserialize<'de> for RemoteRelease {
             notes: release.notes,
             pub_date,
             data,
+            download_headers: HeaderMap::new(),
         })
     }
 }
