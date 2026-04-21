@@ -33,6 +33,7 @@ pub struct GitHubSource {
 }
 
 impl GitHubSource {
+    /// Creates a GitHub-backed release source for production use.
     pub fn new(owner: impl Into<String>, repo: impl Into<String>) -> Self {
         Self {
             client: Octocrab::default(),
@@ -42,6 +43,13 @@ impl GitHubSource {
         }
     }
 
+    /// Builds a fixture-backed source for tests that need deterministic assets
+    /// without hitting the GitHub API.
+    ///
+    /// This helper is intentionally test-oriented. Production code should use
+    /// [`GitHubSource::new`] so signatures are fetched from the real paired
+    /// release asset.
+    #[doc(hidden)]
     pub fn from_assets(
         owner: impl Into<String>,
         repo: impl Into<String>,
