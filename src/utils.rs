@@ -17,7 +17,6 @@ use std::path::{Path, PathBuf};
 /// Supported operating systems.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OS {
-    Linux,
     Macos,
     Windows,
 }
@@ -25,7 +24,6 @@ pub enum OS {
 impl std::fmt::Display for OS {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            OS::Linux => write!(f, "linux"),
             OS::Macos => write!(f, "macos"),
             OS::Windows => write!(f, "windows"),
         }
@@ -60,8 +58,6 @@ impl SystemInfo {
     pub fn current() -> Result<Self> {
         let os = if cfg!(target_os = "macos") {
             OS::Macos
-        } else if cfg!(target_os = "linux") {
-            OS::Linux
         } else if cfg!(target_os = "windows") {
             OS::Windows
         } else {

@@ -36,4 +36,4 @@ mod macos;
 mod windows;
 pub use github::*;
 pub mod utils;
-pub use utils::*;
+pub use utils::{extract_path_from_executable, BundleType};

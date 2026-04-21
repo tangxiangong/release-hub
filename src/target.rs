@@ -1,6 +1,18 @@
 use crate::{Error, Result};
-use crate::utils::{Arch, OS, SystemInfo};
 use std::path::Path;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OS {
+    Linux,
+    Macos,
+    Windows,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Arch {
+    X86_64,
+    Arm64,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallerKind {
@@ -11,6 +23,12 @@ pub enum InstallerKind {
     AppZip,
     Msi,
     Nsis,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemInfo {
+    pub os: OS,
+    pub arch: Arch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +52,28 @@ impl TargetInfo {
             target: format!("{os}-{arch}"),
             system,
         }
+    }
+}
+
+impl SystemInfo {
+    pub fn current() -> Result<Self> {
+        let os = if cfg!(target_os = "linux") {
+            OS::Linux
+        } else if cfg!(target_os = "macos") {
+            OS::Macos
+        } else if cfg!(target_os = "windows") {
+            OS::Windows
+        } else {
+            return Err(Error::UnsupportedOs);
+        };
+        let arch = if cfg!(target_arch = "x86_64") {
+            Arch::X86_64
+        } else if cfg!(target_arch = "aarch64") {
+            Arch::Arm64
+        } else {
+            return Err(Error::UnsupportedArch);
+        };
+        Ok(Self { os, arch })
     }
 }
 
