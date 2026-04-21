@@ -37,6 +37,7 @@ fn linux_appimage_install_writes_real_target_path() {
         dangerous_accept_invalid_hostnames: false,
         extract_path: target_path.clone(),
         app_name: "ReleaseHub".into(),
+        installer_args: Vec::new(),
     };
 
     update.install(b"payload").unwrap();
