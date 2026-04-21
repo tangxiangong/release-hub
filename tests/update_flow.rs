@@ -1,6 +1,7 @@
 use httpmock::Method::GET;
 use httpmock::MockServer;
-use release_hub::{Config, EndpointSource, UpdaterBuilder};
+use release_hub::{Config, EndpointSource, InstallerKind, Update, UpdaterBuilder};
+use semver::Version;
 use url::Url;
 
 fn test_config(endpoint: Url) -> Config {
@@ -9,6 +10,21 @@ fn test_config(endpoint: Url) -> Config {
         endpoints: vec![endpoint],
         pubkey: "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3".into(),
         ..Default::default()
+    }
+}
+
+fn test_update(download_url: Url, signature: &str) -> Update {
+    Update {
+        current_version: Version::parse("1.0.0").unwrap(),
+        version: Version::parse("1.0.1").unwrap(),
+        date: None,
+        body: Some("Bug fixes".into()),
+        raw_json: serde_json::json!({}),
+        download_url,
+        signature: signature.into(),
+        pubkey: include_str!("fixtures/minisign/test.pub").into(),
+        target: "linux-x86_64".into(),
+        installer_kind: InstallerKind::AppImage,
     }
 }
 
@@ -92,4 +108,43 @@ fn build_fails_when_default_config_has_no_endpoints() {
         }
         Err(err) => panic!("unexpected error: {err}"),
     }
+}
+
+#[tokio::test]
+async fn update_download_verifies_minisign_payload() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/release-hub.AppImage");
+        then.status(200).body("test");
+    });
+
+    let update = test_update(
+        Url::parse(&server.url("/release-hub.AppImage")).unwrap(),
+        include_str!("fixtures/minisign/test.sig"),
+    );
+
+    let mut chunks = Vec::new();
+    let bytes = update.download(|chunk| chunks.push(chunk)).await.unwrap();
+
+    assert_eq!(bytes, b"test");
+    assert_eq!(chunks, vec![4]);
+}
+
+#[tokio::test]
+async fn update_download_rejects_invalid_signature() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/release-hub.AppImage");
+        then.status(200).body("test");
+    });
+
+    let err = test_update(
+        Url::parse(&server.url("/release-hub.AppImage")).unwrap(),
+        "invalid-signature",
+    )
+    .download(|_| {})
+    .await
+    .unwrap_err();
+
+    assert!(matches!(err, release_hub::Error::Minisign(_)));
 }

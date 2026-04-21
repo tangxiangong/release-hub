@@ -10,12 +10,10 @@ use crate::{
     Config, EndpointSource, Error, InstallerKind, ReleaseSource, Result, SourceRequest, TargetInfo,
     Update, extract_path_from_executable,
 };
-use futures_util::StreamExt;
 use http::{
     HeaderName,
-    header::{ACCEPT, HeaderMap, HeaderValue},
+    header::{HeaderMap, HeaderValue},
 };
-use reqwest::ClientBuilder;
 use semver::Version;
 use std::{
     env::current_exe,
@@ -25,8 +23,6 @@ use std::{
     time::Duration,
 };
 use url::Url;
-
-const UPDATER_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
 pub type VersionComparator =
     Arc<dyn Fn(Version, crate::RemoteRelease) -> bool + Send + Sync + 'static>;
@@ -241,7 +237,7 @@ impl Updater {
 
     pub async fn update<C: FnMut(usize)>(&self, on_chunk: C) -> Result<bool> {
         if let Some(update) = self.check().await? {
-            self.download_and_install(&update, on_chunk).await?;
+            update.download_and_install(on_chunk).await?;
             Ok(true)
         } else {
             Ok(false)
@@ -249,55 +245,8 @@ impl Updater {
     }
 
     /// Downloads the updater package and returns it as bytes.
-    pub async fn download<C: FnMut(usize)>(
-        &self,
-        update: &Update,
-        mut on_chunk: C,
-    ) -> Result<Vec<u8>> {
-        let mut headers = self.headers.clone();
-        if !headers.contains_key(ACCEPT) {
-            headers.insert(ACCEPT, HeaderValue::from_static("application/octet-stream"));
-        }
-
-        let mut request = ClientBuilder::new().user_agent(UPDATER_USER_AGENT);
-        if self.config.dangerous_accept_invalid_certs {
-            request = request.danger_accept_invalid_certs(true);
-        }
-        if self.config.dangerous_accept_invalid_hostnames {
-            request = request.danger_accept_invalid_hostnames(true);
-        }
-        if let Some(timeout) = self.timeout {
-            request = request.timeout(timeout);
-        }
-        if self.no_proxy {
-            request = request.no_proxy();
-        } else if let Some(ref proxy) = self.proxy {
-            let proxy = reqwest::Proxy::all(proxy.as_str())?;
-            request = request.proxy(proxy);
-        }
-
-        let response = request
-            .build()?
-            .get(update.download_url.clone())
-            .headers(headers)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(Error::Network(format!(
-                "Download request failed with status: {}",
-                response.status()
-            )));
-        }
-
-        let mut buffer = Vec::new();
-        let mut stream = response.bytes_stream();
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
-            on_chunk(chunk.len());
-            buffer.extend(chunk);
-        }
-        Ok(buffer)
+    pub async fn download<C: FnMut(usize)>(&self, update: &Update, on_chunk: C) -> Result<Vec<u8>> {
+        update.download(on_chunk).await
     }
 
     /// Installs the updater package downloaded by [`Updater::download`].
@@ -314,8 +263,59 @@ impl Updater {
         update: &Update,
         on_chunk: C,
     ) -> Result<()> {
-        let bytes = self.download(update, on_chunk).await?;
-        self.install(bytes)
+        update.download_and_install(on_chunk).await
+    }
+}
+
+impl Update {
+    pub async fn download<C>(&self, mut on_chunk: C) -> Result<Vec<u8>>
+    where
+        C: FnMut(usize),
+    {
+        let response = reqwest::get(self.download_url.clone()).await?;
+        if !response.status().is_success() {
+            return Err(Error::Network(format!(
+                "Download request failed with status: {}",
+                response.status()
+            )));
+        }
+
+        let bytes = response.bytes().await?;
+        on_chunk(bytes.len());
+        crate::verify_minisign(&bytes, &self.pubkey, &self.signature)?;
+        Ok(bytes.to_vec())
+    }
+
+    pub fn install(&self, bytes: &[u8]) -> Result<()> {
+        match self.installer_kind {
+            InstallerKind::AppTarGz | InstallerKind::AppZip => self.install_macos(bytes),
+            InstallerKind::Msi | InstallerKind::Nsis => self.install_windows(bytes),
+            InstallerKind::AppImage | InstallerKind::Deb | InstallerKind::Rpm => {
+                self.install_linux(bytes)
+            }
+        }
+    }
+
+    pub async fn download_and_install<C>(&self, on_chunk: C) -> Result<()>
+    where
+        C: FnMut(usize),
+    {
+        let bytes = self.download(on_chunk).await?;
+        self.install(&bytes)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+impl Update {
+    pub(crate) fn install_macos(&self, _bytes: &[u8]) -> Result<()> {
+        Err(Error::UnsupportedOs)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+impl Update {
+    pub(crate) fn install_windows(&self, _bytes: &[u8]) -> Result<()> {
+        Err(Error::UnsupportedOs)
     }
 }
 

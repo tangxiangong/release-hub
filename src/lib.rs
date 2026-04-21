@@ -17,6 +17,8 @@ mod config;
 pub use config::*;
 mod error;
 pub use error::*;
+mod linux;
+pub use linux::LinuxInstallCommand;
 mod verify;
 pub use verify::*;
 pub mod source;
