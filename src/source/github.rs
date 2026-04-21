@@ -1,22 +1,26 @@
-use std::{collections::HashMap, path::Path};
-
+use crate::{
+    Error, InstallerKind, ReleaseManifestPlatform, ReleaseSource, RemoteRelease,
+    RemoteReleaseInner, Result, SourceFuture, SourceRequest,
+};
 use octocrab::{
     Octocrab,
     models::repos::{Asset, Release},
 };
 use semver::Version;
 use serde_json::json;
+use std::{collections::HashMap, path::Path};
 use time::OffsetDateTime;
-
-use crate::{
-    Error, InstallerKind, ReleaseManifestPlatform, ReleaseSource, RemoteRelease,
-    RemoteReleaseInner, Result, SourceRequest,
-};
 
 #[derive(Debug, Clone)]
 struct FixtureRelease {
     version: String,
     assets: Vec<FixtureAsset>,
+}
+
+impl ReleaseSource for GitHubSource {
+    fn fetch<'a>(&'a self, request: &'a SourceRequest) -> SourceFuture<'a> {
+        Box::pin(async move { self.release_source_impl(request).await })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +35,7 @@ enum SignatureSource<'a> {
     Fixture(&'a str),
 }
 
+#[derive(Debug, Clone)]
 pub struct GitHubSource {
     client: octocrab::Octocrab,
     owner: String,
@@ -77,6 +82,50 @@ impl GitHubSource {
                     .collect(),
             }),
         }
+    }
+
+    pub(crate) async fn release_source_impl(
+        &self,
+        request: &SourceRequest,
+    ) -> Result<RemoteRelease> {
+        if let Some(fixture_release) = &self.fixture_release {
+            let asset = select_fixture_target_asset(&fixture_release.assets, &request.target)?;
+            let signature_asset =
+                find_fixture_signature_asset(&fixture_release.assets, &asset.name)
+                    .ok_or_else(|| Error::MissingSignatureAsset(asset.name.clone()))?;
+            let download_asset = fixture_download_asset(asset, 1);
+
+            return build_remote_release_from_assets(
+                &request.target,
+                &fixture_release.version,
+                None,
+                None,
+                &download_asset,
+                SignatureSource::Fixture(&signature_asset.value),
+            )
+            .await;
+        }
+
+        let release = self
+            .client
+            .repos(&self.owner, &self.repo)
+            .releases()
+            .get_latest()
+            .await?;
+        let pub_date = parse_pub_date(&release)?;
+        let asset = select_target_asset(&release.assets, &request.target)?;
+        let signature_asset = find_signature_asset(&release.assets, &asset.name)
+            .ok_or_else(|| Error::MissingSignatureAsset(asset.name.clone()))?;
+
+        build_remote_release_from_assets(
+            &request.target,
+            &release.tag_name,
+            release.body.clone(),
+            pub_date,
+            asset,
+            SignatureSource::Download(signature_asset),
+        )
+        .await
     }
 }
 
@@ -129,7 +178,10 @@ fn select_target_asset<'a>(assets: &'a [Asset], target: &str) -> Result<&'a Asse
         .ok_or_else(|| Error::TargetNotFound(target.into()))
 }
 
-fn select_fixture_target_asset<'a>(assets: &'a [FixtureAsset], target: &str) -> Result<&'a FixtureAsset> {
+fn select_fixture_target_asset<'a>(
+    assets: &'a [FixtureAsset],
+    target: &str,
+) -> Result<&'a FixtureAsset> {
     let variants = target_variants(target);
     assets
         .iter()
@@ -181,11 +233,13 @@ fn parse_pub_date(release: &Release) -> Result<Option<OffsetDateTime>> {
 
 async fn load_signature(source: SignatureSource<'_>) -> Result<String> {
     match source {
-        SignatureSource::Download(signature_asset) => Ok(reqwest::get(signature_asset.browser_download_url.clone())
-            .await?
-            .error_for_status()?
-            .text()
-            .await?),
+        SignatureSource::Download(signature_asset) => {
+            Ok(reqwest::get(signature_asset.browser_download_url.clone())
+                .await?
+                .error_for_status()?
+                .text()
+                .await?)
+        }
         SignatureSource::Fixture(signature) => Ok(signature.to_string()),
     }
 }
@@ -213,47 +267,4 @@ async fn build_remote_release_from_assets(
         pub_date,
         data: RemoteReleaseInner::Static { platforms },
     })
-}
-
-#[async_trait::async_trait]
-impl ReleaseSource for GitHubSource {
-    async fn fetch(&self, request: &SourceRequest) -> Result<RemoteRelease> {
-        if let Some(fixture_release) = &self.fixture_release {
-            let asset = select_fixture_target_asset(&fixture_release.assets, &request.target)?;
-            let signature_asset = find_fixture_signature_asset(&fixture_release.assets, &asset.name)
-                .ok_or_else(|| Error::MissingSignatureAsset(asset.name.clone()))?;
-            let download_asset = fixture_download_asset(asset, 1);
-
-            return build_remote_release_from_assets(
-                &request.target,
-                &fixture_release.version,
-                None,
-                None,
-                &download_asset,
-                SignatureSource::Fixture(&signature_asset.value),
-            )
-            .await;
-        }
-
-        let release = self
-            .client
-            .repos(&self.owner, &self.repo)
-            .releases()
-            .get_latest()
-            .await?;
-        let pub_date = parse_pub_date(&release)?;
-        let asset = select_target_asset(&release.assets, &request.target)?;
-        let signature_asset = find_signature_asset(&release.assets, &asset.name)
-            .ok_or_else(|| Error::MissingSignatureAsset(asset.name.clone()))?;
-
-        build_remote_release_from_assets(
-            &request.target,
-            &release.tag_name,
-            release.body.clone(),
-            pub_date,
-            asset,
-            SignatureSource::Download(signature_asset),
-        )
-        .await
-    }
 }

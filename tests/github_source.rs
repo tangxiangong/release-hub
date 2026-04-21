@@ -1,9 +1,8 @@
-use release_hub::source::github::GitHubSource as ModuleGitHubSource;
-use release_hub::{ReleaseSource, SourceRequest, verify_minisign};
+use release_hub::{GitHubSource, ReleaseSource, SourceRequest, verify_minisign};
 
 #[tokio::test]
 async fn github_source_module_path_pairs_asset_with_signature() {
-    let source = ModuleGitHubSource::from_assets(
+    let source = GitHubSource::from_assets(
         "owner",
         "repo",
         "1.2.3",
@@ -37,7 +36,7 @@ async fn github_source_module_path_pairs_asset_with_signature() {
 
 #[tokio::test]
 async fn github_source_requires_matching_signature_asset() {
-    let source = release_hub::source::GitHubSource::from_assets(
+    let source = GitHubSource::from_assets(
         "owner",
         "repo",
         "1.2.3",

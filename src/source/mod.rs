@@ -2,6 +2,7 @@ pub mod endpoint;
 pub mod github;
 
 use crate::RemoteRelease;
+use std::{future::Future, pin::Pin};
 
 #[derive(Debug, Clone)]
 pub struct SourceRequest {
@@ -16,9 +17,10 @@ impl SourceRequest {
     }
 }
 
-#[async_trait::async_trait]
+pub type SourceFuture<'a> = Pin<Box<dyn Future<Output = crate::Result<RemoteRelease>> + Send + 'a>>;
+
 pub trait ReleaseSource: Send + Sync {
-    async fn fetch(&self, request: &SourceRequest) -> crate::Result<RemoteRelease>;
+    fn fetch<'a>(&'a self, request: &'a SourceRequest) -> SourceFuture<'a>;
 }
 
 pub use endpoint::EndpointSource;
