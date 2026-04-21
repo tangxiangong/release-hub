@@ -1,6 +1,9 @@
 use crate::{Error, InstallerKind, Result, Update};
 use fs_err as fs;
-use std::{path::PathBuf, process::Command};
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinuxInstallCommand {
@@ -13,10 +16,12 @@ impl LinuxInstallCommand {
         let path = artifact.display().to_string();
         match kind {
             InstallerKind::AppImage => Ok(Self {
-                program: "sh".into(),
+                program: "install".into(),
                 args: vec![
-                    "-c".into(),
-                    format!("install -m 755 {path} {path}.new && mv {path}.new {path}"),
+                    "-m".into(),
+                    "755".into(),
+                    path.clone(),
+                    format!("{path}.new"),
                 ],
             }),
             InstallerKind::Deb => Ok(Self {
@@ -34,6 +39,10 @@ impl LinuxInstallCommand {
 
 impl Update {
     pub(crate) fn install_linux(&self, bytes: &[u8]) -> Result<()> {
+        if self.installer_kind == InstallerKind::AppImage {
+            return install_appimage(bytes, &self.extract_path);
+        }
+
         let staging_dir = tempfile::Builder::new()
             .prefix("release-hub-linux-installer-")
             .tempdir()?;
@@ -56,4 +65,25 @@ impl Update {
             Err(Error::InstallerExecutionFailed(status.code().unwrap_or(-1)))
         }
     }
+}
+
+fn install_appimage(bytes: &[u8], target_path: &Path) -> Result<()> {
+    if let Some(parent) = target_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let staging_path = appimage_staging_path(target_path);
+    fs::write(&staging_path, bytes)?;
+    #[cfg(unix)]
+    {
+        use std::{fs::Permissions, os::unix::fs::PermissionsExt};
+
+        fs::set_permissions(&staging_path, Permissions::from_mode(0o755))?;
+    }
+    fs::rename(&staging_path, target_path)?;
+    Ok(())
+}
+
+fn appimage_staging_path(target_path: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.new", target_path.display()))
 }

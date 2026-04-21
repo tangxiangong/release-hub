@@ -31,6 +31,14 @@ const UPDATER_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARG
 pub type VersionComparator =
     Arc<dyn Fn(Version, crate::RemoteRelease) -> bool + Send + Sync + 'static>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InstallAction {
+    MacosArchive,
+    WindowsExecutableLaunch,
+    LinuxAppImageReplace,
+    LinuxPackageCommand,
+}
+
 /// Configures and creates an [`Updater`].
 pub struct UpdaterBuilder {
     app_name: String,
@@ -280,6 +288,15 @@ impl Updater {
 }
 
 impl Update {
+    fn install_action(&self) -> InstallAction {
+        match self.installer_kind {
+            InstallerKind::AppTarGz | InstallerKind::AppZip => InstallAction::MacosArchive,
+            InstallerKind::Msi | InstallerKind::Nsis => InstallAction::WindowsExecutableLaunch,
+            InstallerKind::AppImage => InstallAction::LinuxAppImageReplace,
+            InstallerKind::Deb | InstallerKind::Rpm => InstallAction::LinuxPackageCommand,
+        }
+    }
+
     pub async fn download<C>(&self, mut on_chunk: C) -> Result<Vec<u8>>
     where
         C: FnMut(usize),
@@ -326,10 +343,10 @@ impl Update {
     }
 
     pub fn install(&self, bytes: &[u8]) -> Result<()> {
-        match self.installer_kind {
-            InstallerKind::AppTarGz | InstallerKind::AppZip => self.install_macos(bytes),
-            InstallerKind::Msi | InstallerKind::Nsis => self.install_windows(bytes),
-            InstallerKind::AppImage | InstallerKind::Deb | InstallerKind::Rpm => {
+        match self.install_action() {
+            InstallAction::MacosArchive => self.install_macos(bytes),
+            InstallAction::WindowsExecutableLaunch => self.install_windows(bytes),
+            InstallAction::LinuxAppImageReplace | InstallAction::LinuxPackageCommand => {
                 self.install_linux(bytes)
             }
         }
@@ -366,5 +383,46 @@ impl Updater {
 
     pub(crate) fn relaunch_inner(&self) -> Result<()> {
         Err(Error::UnsupportedOs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http::HeaderMap;
+
+    fn test_update(installer_kind: InstallerKind) -> Update {
+        Update {
+            current_version: Version::parse("1.0.0").unwrap(),
+            version: Version::parse("1.0.1").unwrap(),
+            date: None,
+            body: None,
+            raw_json: serde_json::json!({}),
+            download_url: Url::parse("https://example.com/release-hub.AppImage").unwrap(),
+            signature: String::new(),
+            pubkey: String::new(),
+            target: "linux-x86_64".into(),
+            installer_kind,
+            headers: HeaderMap::new(),
+            timeout: None,
+            proxy: None,
+            no_proxy: false,
+            dangerous_accept_invalid_certs: false,
+            dangerous_accept_invalid_hostnames: false,
+            extract_path: PathBuf::from("/tmp/release-hub"),
+            app_name: "ReleaseHub".into(),
+        }
+    }
+
+    #[test]
+    fn windows_installers_use_launch_route() {
+        assert_eq!(
+            test_update(InstallerKind::Msi).install_action(),
+            InstallAction::WindowsExecutableLaunch
+        );
+        assert_eq!(
+            test_update(InstallerKind::Nsis).install_action(),
+            InstallAction::WindowsExecutableLaunch
+        );
     }
 }
