@@ -28,6 +28,7 @@ use url::Url;
 
 const UPDATER_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
+/// Custom version comparator used to override the default semver `>` update check.
 pub type VersionComparator =
     Arc<dyn Fn(Version, crate::RemoteRelease) -> bool + Send + Sync + 'static>;
 
@@ -99,6 +100,7 @@ pub struct UpdaterBuilder {
 }
 
 impl UpdaterBuilder {
+    /// Creates a new updater builder from application metadata and static configuration.
     pub fn new(app_name: &str, current_version: &str, config: Config) -> Self {
         Self {
             app_name: app_name.to_owned(),
@@ -116,16 +118,19 @@ impl UpdaterBuilder {
         }
     }
 
+    /// Overrides the detected target string used when fetching release metadata.
     pub fn target(mut self, target: impl Into<String>) -> Self {
         self.target = Some(target.into());
         self
     }
 
+    /// Sets a custom release source implementation.
     pub fn source(mut self, source: Box<dyn ReleaseSource>) -> Self {
         self.source = Some(source);
         self
     }
 
+    /// Overrides the default version comparison logic.
     pub fn version_comparator<F>(mut self, comparator: F) -> Self
     where
         F: Fn(Version, crate::RemoteRelease) -> bool + Send + Sync + 'static,
@@ -134,11 +139,13 @@ impl UpdaterBuilder {
         self
     }
 
+    /// Overrides the executable path used to derive the install target.
     pub fn executable_path<P: AsRef<Path>>(mut self, p: P) -> Self {
         self.executable_path.replace(p.as_ref().into());
         self
     }
 
+    /// Adds a single HTTP header to release-fetch and download requests.
     pub fn header<K, V>(mut self, key: K, value: V) -> Result<Self>
     where
         HeaderName: TryFrom<K>,
@@ -153,31 +160,37 @@ impl UpdaterBuilder {
         Ok(self)
     }
 
+    /// Replaces all configured HTTP headers.
     pub fn headers(mut self, headers: HeaderMap) -> Self {
         self.headers = headers;
         self
     }
 
+    /// Removes all configured HTTP headers.
     pub fn clear_headers(mut self) -> Self {
         self.headers.clear();
         self
     }
 
+    /// Sets a timeout for release-fetch and download HTTP requests.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
+    /// Configures a proxy for release-fetch and download requests.
     pub fn proxy(mut self, proxy: Url) -> Self {
         self.proxy = Some(proxy);
         self
     }
 
+    /// Disables proxy usage for release-fetch and download requests.
     pub fn no_proxy(mut self) -> Self {
         self.no_proxy = true;
         self
     }
 
+    /// Appends a single Windows installer argument.
     pub fn installer_arg<S>(mut self, arg: S) -> Self
     where
         S: Into<OsString>,
@@ -186,6 +199,7 @@ impl UpdaterBuilder {
         self
     }
 
+    /// Appends multiple Windows installer arguments.
     pub fn installer_args<I, S>(mut self, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -195,11 +209,13 @@ impl UpdaterBuilder {
         self
     }
 
+    /// Clears builder-provided Windows installer arguments.
     pub fn clear_installer_args(mut self) -> Self {
         self.installer_args.clear();
         self
     }
 
+    /// Builds an [`Updater`] from the accumulated configuration.
     pub fn build(self) -> Result<Updater> {
         self.config.validate()?;
 
@@ -250,26 +266,39 @@ impl UpdaterBuilder {
 
 /// Updater instance capable of checking, downloading and installing updates.
 pub struct Updater {
+    /// Application name used by platform backends and staging paths.
     pub app_name: String,
+    /// Current application version.
     pub current_version: Version,
+    /// Static updater configuration.
     pub config: Config,
+    /// Selected target string.
     pub target: String,
     source: Arc<dyn ReleaseSource>,
+    /// HTTP headers propagated to update downloads.
     pub headers: HeaderMap,
+    /// Optional download timeout.
     pub timeout: Option<Duration>,
+    /// Optional proxy configuration.
     pub proxy: Option<Url>,
+    /// Whether proxy configuration should be ignored.
     pub no_proxy: bool,
+    /// Derived installation target path.
     pub extract_path: PathBuf,
+    /// Windows installer arguments propagated from config and builder overrides.
     pub installer_args: Vec<OsString>,
+    /// Optional custom version comparator.
     pub version_comparator: Option<VersionComparator>,
     latest_release_version: Mutex<Option<Version>>,
 }
 
 impl Updater {
+    /// Returns the latest remote version observed by the last successful [`Self::check`] call.
     pub fn latest_version(&self) -> Option<Version> {
         self.latest_release_version.lock().ok()?.clone()
     }
 
+    /// Fetches release metadata and returns an [`Update`] when a newer version is available.
     pub async fn check(&self) -> Result<Option<Update>> {
         let request = SourceRequest::new(self.target.clone());
         let release = self.source.fetch(&request).await?;
@@ -311,6 +340,7 @@ impl Updater {
         }))
     }
 
+    /// Convenience helper that checks for an update and downloads/installs it when present.
     pub async fn update<C: FnMut(usize)>(&self, on_chunk: C) -> Result<bool> {
         if let Some(update) = self.check().await? {
             update.download_and_install(on_chunk).await?;
@@ -330,10 +360,12 @@ impl Updater {
         self.install_inner(bytes.as_ref())
     }
 
+    /// Relaunches the application using the current platform backend.
     pub fn relaunch(&self) -> Result<()> {
         self.relaunch_inner()
     }
 
+    /// Convenience helper that downloads and installs a specific [`Update`].
     pub async fn download_and_install<C: FnMut(usize)>(
         &self,
         update: &Update,
@@ -353,6 +385,7 @@ impl Update {
         }
     }
 
+    /// Downloads the selected artifact and verifies its detached minisign signature.
     pub async fn download<C>(&self, mut on_chunk: C) -> Result<Vec<u8>>
     where
         C: FnMut(usize),
@@ -398,6 +431,7 @@ impl Update {
         Ok(bytes.to_vec())
     }
 
+    /// Installs already-downloaded artifact bytes using the selected platform backend.
     pub fn install(&self, bytes: &[u8]) -> Result<()> {
         match self.install_action() {
             InstallAction::MacosArchive => self.install_macos(bytes),
@@ -408,6 +442,7 @@ impl Update {
         }
     }
 
+    /// Downloads, verifies, and installs the selected update in one step.
     pub async fn download_and_install<C>(&self, on_chunk: C) -> Result<()>
     where
         C: FnMut(usize),

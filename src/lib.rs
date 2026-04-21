@@ -20,6 +20,7 @@ mod linux;
 pub use linux::LinuxInstallCommand;
 mod verify;
 pub use verify::*;
+/// Release source implementations and the source abstraction used by the updater.
 pub mod source;
 pub use source::*;
 mod target;

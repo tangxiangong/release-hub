@@ -14,9 +14,13 @@ use std::path::{Path, PathBuf};
 /// Bundle types supported by the installer logic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BundleType {
+    /// macOS `.app.zip` bundle.
     MacOSAppZip,
+    /// macOS DMG image.
     MacOSDMG,
+    /// Windows MSI installer.
     WindowsMSI,
+    /// Windows EXE / setup installer.
     WindowsSetUp,
 }
 

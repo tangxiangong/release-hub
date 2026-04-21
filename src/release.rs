@@ -7,26 +7,38 @@ use url::Url;
 
 use crate::InstallerKind;
 
+/// Target-specific release payload returned by a manifest.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ReleaseManifestPlatform {
+    /// Download URL for the artifact.
     pub url: Url,
+    /// Detached minisign signature for the artifact.
     pub signature: String,
 }
 
+/// Release payload shape supported by the updater manifests.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(untagged)]
 pub enum RemoteReleaseInner {
+    /// Single-target dynamic release payload.
     Dynamic(ReleaseManifestPlatform),
+    /// Static multi-target release payload keyed by target string.
     Static {
+        /// Mapping from target string to downloadable artifact metadata.
         platforms: HashMap<String, ReleaseManifestPlatform>,
     },
 }
 
+/// Neutral release model shared by all configured release sources.
 #[derive(Debug, Serialize, Clone)]
 pub struct RemoteRelease {
+    /// Remote version advertised by the source.
     pub version: Version,
+    /// Optional release notes or body text.
     pub notes: Option<String>,
+    /// Optional publication timestamp.
     pub pub_date: Option<OffsetDateTime>,
+    /// Target-specific artifact metadata.
     #[serde(flatten)]
     pub data: RemoteReleaseInner,
 }
@@ -80,6 +92,7 @@ impl<'de> Deserialize<'de> for RemoteRelease {
 }
 
 impl RemoteRelease {
+    /// Returns the download URL for the requested target.
     pub fn download_url(&self, target: &str) -> crate::Result<&Url> {
         match &self.data {
             RemoteReleaseInner::Dynamic(platform) => Ok(&platform.url),
@@ -90,6 +103,7 @@ impl RemoteRelease {
         }
     }
 
+    /// Returns the detached signature for the requested target.
     pub fn signature(&self, target: &str) -> crate::Result<&String> {
         match &self.data {
             RemoteReleaseInner::Dynamic(platform) => Ok(&platform.signature),
@@ -101,25 +115,45 @@ impl RemoteRelease {
     }
 }
 
+/// Ready-to-download update candidate produced by [`crate::Updater::check`].
 #[derive(Debug, Clone)]
 pub struct Update {
+    /// Current application version.
     pub current_version: Version,
+    /// Target release version.
     pub version: Version,
+    /// Optional release publication date.
     pub date: Option<OffsetDateTime>,
+    /// Optional release body or notes.
     pub body: Option<String>,
+    /// Raw serialized release payload for advanced consumers.
     pub raw_json: serde_json::Value,
+    /// Concrete artifact download URL.
     pub download_url: Url,
+    /// Detached minisign signature for the selected artifact.
     pub signature: String,
+    /// Minisign public key used for verification.
     pub pubkey: String,
+    /// Selected target string.
     pub target: String,
+    /// Installer format chosen for the selected artifact.
     pub installer_kind: InstallerKind,
+    /// HTTP headers propagated from the updater builder.
     pub headers: HeaderMap,
+    /// Optional download timeout.
     pub timeout: Option<Duration>,
+    /// Optional proxy configuration.
     pub proxy: Option<Url>,
+    /// Whether proxy configuration should be ignored.
     pub no_proxy: bool,
+    /// Whether invalid TLS certificates should be accepted.
     pub dangerous_accept_invalid_certs: bool,
+    /// Whether invalid TLS hostnames should be accepted.
     pub dangerous_accept_invalid_hostnames: bool,
+    /// Final installation target path.
     pub extract_path: PathBuf,
+    /// Application name used by platform backends.
     pub app_name: String,
+    /// Windows installer arguments propagated from configuration and builder overrides.
     pub installer_args: Vec<OsString>,
 }

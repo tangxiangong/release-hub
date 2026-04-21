@@ -1,43 +1,65 @@
 use crate::{Error, Result};
 use std::path::Path;
 
+/// Supported operating systems for release targeting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OS {
+    /// Linux targets.
     Linux,
+    /// macOS / Darwin targets.
     Macos,
+    /// Windows targets.
     Windows,
 }
 
+/// Supported CPU architectures for release targeting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Arch {
+    /// 64-bit x86.
     X86_64,
+    /// 64-bit ARM.
     Arm64,
 }
 
+/// Installer formats understood by the platform backends.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallerKind {
+    /// Linux AppImage package.
     AppImage,
+    /// Debian package.
     Deb,
+    /// RPM package.
     Rpm,
+    /// macOS `.app.tar.gz` archive.
     AppTarGz,
+    /// macOS `.app.zip` archive.
     AppZip,
+    /// Windows MSI installer.
     Msi,
+    /// Windows EXE / NSIS-style installer.
     Nsis,
 }
 
+/// Runtime platform information for target selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SystemInfo {
+    /// Operating system component.
     pub os: OS,
+    /// Architecture component.
     pub arch: Arch,
 }
 
+/// Fully-resolved target descriptor used for source selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetInfo {
+    /// Canonical target string such as `linux-x86_64`.
     pub target: String,
+    /// Structured system information used to derive the target.
     pub system: SystemInfo,
 }
 
 impl TargetInfo {
+    /// Converts structured system information into the crate's canonical target string.
     pub fn from_system(system: SystemInfo) -> Self {
         let os = match system.os {
             OS::Linux => "linux",
@@ -56,6 +78,7 @@ impl TargetInfo {
 }
 
 impl SystemInfo {
+    /// Detects the current host operating system and architecture.
     pub fn current() -> Result<Self> {
         let os = if cfg!(target_os = "linux") {
             OS::Linux
@@ -78,6 +101,7 @@ impl SystemInfo {
 }
 
 impl InstallerKind {
+    /// Infers the installer format from an artifact filename or path.
     pub fn from_path(path: &Path) -> Result<Self> {
         let name = path
             .file_name()

@@ -1,12 +1,14 @@
 use crate::{ReleaseSource, RemoteRelease, Result, SourceFuture, SourceRequest};
 use url::Url;
 
+/// Release source backed by one or more HTTP(S) manifest endpoints.
 #[derive(Debug, Clone)]
 pub struct EndpointSource {
     endpoints: Vec<Url>,
 }
 
 impl EndpointSource {
+    /// Creates an endpoint-backed release source.
     pub fn new(endpoints: Vec<Url>) -> Self {
         Self { endpoints }
     }

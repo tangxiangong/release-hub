@@ -5,13 +5,17 @@ use std::{
     process::Command,
 };
 
+/// Linux command description for package-manager-backed installs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinuxInstallCommand {
+    /// Executable to launch.
     pub program: String,
+    /// Arguments passed to the executable.
     pub args: Vec<String>,
 }
 
 impl LinuxInstallCommand {
+    /// Builds the Linux install command for a staged artifact.
     pub fn for_kind(kind: InstallerKind, artifact: PathBuf) -> Result<Self> {
         let path = artifact.display().to_string();
         match kind {

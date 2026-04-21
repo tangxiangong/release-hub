@@ -35,6 +35,7 @@ enum SignatureSource<'a> {
     Fixture(&'a str),
 }
 
+/// Release source backed by the latest GitHub Release of a repository.
 #[derive(Debug, Clone)]
 pub struct GitHubSource {
     client: octocrab::Octocrab,
@@ -84,6 +85,7 @@ impl GitHubSource {
         }
     }
 
+    /// Fetches and adapts the latest GitHub release into the crate's neutral release model.
     pub(crate) async fn release_source_impl(
         &self,
         request: &SourceRequest,

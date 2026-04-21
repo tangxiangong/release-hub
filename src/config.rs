@@ -2,9 +2,11 @@ use serde::{Deserialize, Deserializer, de::Error as DeError};
 use std::ffi::OsString;
 use url::Url;
 
+/// Windows-specific installer configuration.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowsConfig {
+    /// Additional arguments forwarded to the Windows installer launch path.
     #[serde(
         default,
         alias = "installer-args",
@@ -13,17 +15,25 @@ pub struct WindowsConfig {
     pub installer_args: Vec<OsString>,
 }
 
+/// Persistent updater configuration shared by all release sources.
 #[derive(Debug, Clone, Default)]
 pub struct Config {
+    /// Allows non-HTTPS update endpoints. Intended for development only.
     pub dangerous_insecure_transport_protocol: bool,
+    /// Allows invalid TLS certificates during HTTP requests.
     pub dangerous_accept_invalid_certs: bool,
+    /// Allows TLS hostname mismatches during HTTP requests.
     pub dangerous_accept_invalid_hostnames: bool,
+    /// Default endpoint list used when no custom release source is provided.
     pub endpoints: Vec<Url>,
+    /// Minisign public key used to verify downloaded artifacts.
     pub pubkey: String,
+    /// Optional Windows-specific installer configuration.
     pub windows: Option<WindowsConfig>,
 }
 
 impl Config {
+    /// Validates the configuration invariants enforced by this crate.
     pub fn validate(&self) -> crate::Result<()> {
         validate_endpoints(&self.endpoints, self.dangerous_insecure_transport_protocol)
     }
