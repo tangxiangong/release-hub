@@ -1,4 +1,5 @@
-#![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
+//! Source-agnostic updater building blocks for release metadata discovery,
+//! update checks, downloads, and platform-specific installation hooks.
 
 // Copyright (c) 2015 - Present - The Tauri Programme within The Commons Conservancy.
 //

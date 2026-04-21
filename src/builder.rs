@@ -152,6 +152,10 @@ impl UpdaterBuilder {
     pub fn build(self) -> Result<Updater> {
         self.config.validate()?;
 
+        if self.source.is_none() && self.config.endpoints.is_empty() {
+            return Err(Error::Network("no endpoints configured".into()));
+        }
+
         let target = match self.target {
             Some(target) => target,
             None => TargetInfo::from_system(crate::SystemInfo::current()?).target,
@@ -244,7 +248,7 @@ impl Updater {
         }
     }
 
-    /// Downloads the updater package, verifies it then returns it as bytes.
+    /// Downloads the updater package and returns it as bytes.
     pub async fn download<C: FnMut(usize)>(
         &self,
         update: &Update,
