@@ -10,6 +10,8 @@ pub enum Error {
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
     #[error(transparent)]
+    Minisign(#[from] minisign_verify::Error),
+    #[error(transparent)]
     Http(#[from] http::Error),
     #[error(transparent)]
     InvalidHeaderValue(#[from] http::header::InvalidHeaderValue),
