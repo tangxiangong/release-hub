@@ -35,6 +35,25 @@ fn parses_static_manifest_release() {
 }
 
 #[test]
+fn parses_dynamic_manifest_release() {
+    let json = r#"{
+        "version": "2.0.0",
+        "notes": "Dynamic release",
+        "pub_date": "2026-04-21T09:30:00Z",
+        "url": "https://example.com/latest/app.tar.gz",
+        "signature": "sig-dynamic"
+    }"#;
+
+    let release: RemoteRelease = serde_json::from_str(json).unwrap();
+    assert_eq!(release.version, Version::parse("2.0.0").unwrap());
+    assert_eq!(
+        release.download_url("anything").unwrap(),
+        &Url::parse("https://example.com/latest/app.tar.gz").unwrap()
+    );
+    assert_eq!(release.signature("anything").unwrap(), "sig-dynamic");
+}
+
+#[test]
 fn rejects_http_endpoints_in_release_config() {
     let json = r#"{
         "endpoints": ["http://localhost:3000/latest.json"],
@@ -55,4 +74,23 @@ fn rejects_http_endpoints_via_config_validate() {
 
     let err = config.validate().unwrap_err();
     assert!(err.to_string().contains("https"));
+}
+
+#[test]
+fn missing_static_target_returns_target_not_found() {
+    let json = r#"{
+        "version": "1.2.3",
+        "platforms": {
+            "darwin-aarch64": {
+                "url": "https://example.com/app.tar.gz",
+                "signature": "sig-darwin"
+            }
+        }
+    }"#;
+
+    let release: RemoteRelease = serde_json::from_str(json).unwrap();
+    let err = release.download_url("linux-x86_64").unwrap_err();
+    assert!(matches!(err, release_hub::Error::TargetNotFound(target) if target == "linux-x86_64"));
+    let err = release.signature("linux-x86_64").unwrap_err();
+    assert!(matches!(err, release_hub::Error::TargetNotFound(target) if target == "linux-x86_64"));
 }
