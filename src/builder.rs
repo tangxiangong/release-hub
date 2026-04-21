@@ -31,6 +31,49 @@ const UPDATER_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARG
 pub type VersionComparator =
     Arc<dyn Fn(Version, crate::RemoteRelease) -> bool + Send + Sync + 'static>;
 
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn windows_installer_args_command_line(args: &[OsString]) -> Option<String> {
+    if args.is_empty() {
+        None
+    } else {
+        Some(
+            args.iter()
+                .map(windows_quote_installer_arg)
+                .collect::<Vec<_>>()
+                .join(" "),
+        )
+    }
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn windows_quote_installer_arg(arg: &OsString) -> String {
+    let arg = arg.to_string_lossy();
+    if !arg.is_empty() && !arg.contains([' ', '\t', '"']) {
+        return arg.into_owned();
+    }
+
+    let mut quoted = String::from("\"");
+    let mut backslashes = 0usize;
+    for ch in arg.chars() {
+        match ch {
+            '\\' => backslashes += 1,
+            '"' => {
+                quoted.push_str(&"\\".repeat(backslashes * 2 + 1));
+                quoted.push('"');
+                backslashes = 0;
+            }
+            _ => {
+                quoted.push_str(&"\\".repeat(backslashes));
+                quoted.push(ch);
+                backslashes = 0;
+            }
+        }
+    }
+    quoted.push_str(&"\\".repeat(backslashes * 2));
+    quoted.push('"');
+    quoted
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InstallAction {
     MacosArchive,
@@ -179,6 +222,13 @@ impl UpdaterBuilder {
         } else {
             extract_path_from_executable(&executable_path)?
         };
+        let mut installer_args = self
+            .config
+            .windows
+            .as_ref()
+            .map(|windows| windows.installer_args.clone())
+            .unwrap_or_default();
+        installer_args.extend(self.installer_args);
 
         Ok(Updater {
             app_name: self.app_name,
@@ -191,7 +241,7 @@ impl UpdaterBuilder {
             proxy: self.proxy,
             no_proxy: self.no_proxy,
             extract_path,
-            installer_args: self.installer_args,
+            installer_args,
             version_comparator: self.version_comparator,
         })
     }
@@ -252,6 +302,7 @@ impl Updater {
             dangerous_accept_invalid_hostnames: self.config.dangerous_accept_invalid_hostnames,
             extract_path: self.extract_path.clone(),
             app_name: self.app_name.clone(),
+            installer_args: self.installer_args.clone(),
         }))
     }
 
@@ -390,6 +441,7 @@ impl Updater {
 mod tests {
     use super::*;
     use http::HeaderMap;
+    use std::ffi::OsString;
 
     fn test_update(installer_kind: InstallerKind) -> Update {
         Update {
@@ -411,6 +463,7 @@ mod tests {
             dangerous_accept_invalid_hostnames: false,
             extract_path: PathBuf::from("/tmp/release-hub"),
             app_name: "ReleaseHub".into(),
+            installer_args: Vec::new(),
         }
     }
 
@@ -423,6 +476,22 @@ mod tests {
         assert_eq!(
             test_update(InstallerKind::Nsis).install_action(),
             InstallAction::WindowsExecutableLaunch
+        );
+    }
+
+    #[test]
+    fn windows_installer_args_build_expected_command_line() {
+        let args = vec![
+            OsString::from("/quiet"),
+            OsString::from("C:\\Program Files\\Release Hub"),
+            OsString::from("quote\"here"),
+        ];
+
+        assert_eq!(
+            windows_installer_args_command_line(&args),
+            Some(String::from(
+                "/quiet \"C:\\Program Files\\Release Hub\" \"quote\\\"here\""
+            ))
         );
     }
 }

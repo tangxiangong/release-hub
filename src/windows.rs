@@ -6,7 +6,7 @@
 // Copyright (c) 2015 - Present - The Tauri Programme within The Commons Conservancy.
 // Licensed under MIT OR MIT/Apache-2.0
 
-use crate::{Error, Result, Update, Updater};
+use crate::{Error, Result, Update, Updater, builder::windows_installer_args_command_line};
 use fs_err as fs;
 use semver::Version;
 use std::{
@@ -27,18 +27,22 @@ static TEMP_FILE_KEEPER: Mutex<Option<tempfile::TempPath>> = Mutex::new(None);
 
 impl Update {
     pub(crate) fn install_windows(&self, bytes: &[u8]) -> Result<()> {
-        install_windows_with_label(bytes, &self.app_name, &self.version)?;
-        relaunch_windows()
+        launch_windows_installer(bytes, &self.app_name, &self.version, &self.installer_args)
     }
 }
 
 impl Updater {
     pub(crate) fn install_inner(&self, bytes: &[u8]) -> Result<()> {
-        install_windows_with_label(bytes, &self.app_name, &self.current_version)
+        launch_windows_installer(
+            bytes,
+            &self.app_name,
+            &self.current_version,
+            &self.installer_args,
+        )
     }
 
     pub(crate) fn relaunch_inner(&self) -> Result<()> {
-        relaunch_windows()
+        relaunch_windows(&self.installer_args)
     }
 }
 
@@ -59,7 +63,17 @@ fn install_windows_with_label(bytes: &[u8], app_name: &str, version: &Version) -
     Ok(())
 }
 
-fn relaunch_windows() -> Result<()> {
+fn launch_windows_installer(
+    bytes: &[u8],
+    app_name: &str,
+    version: &Version,
+    installer_args: &[OsString],
+) -> Result<()> {
+    install_windows_with_label(bytes, app_name, version)?;
+    relaunch_windows(installer_args)
+}
+
+fn relaunch_windows(installer_args: &[OsString]) -> Result<()> {
     let file = UPDATER_FILE.get().ok_or(Error::InvalidUpdaterFormat)?;
 
     if !Path::new(file).exists() {
@@ -67,12 +81,15 @@ fn relaunch_windows() -> Result<()> {
     }
 
     let file_hstring: HSTRING = file.clone().into();
+    let installer_args = windows_installer_args_command_line(installer_args);
+    let installer_args_hstring = installer_args.as_ref().map(HSTRING::from);
+    let installer_args = installer_args_hstring.as_ref();
     let result = unsafe {
         ShellExecuteW(
             Some(HWND::default()),
             w!("runas"),
             &file_hstring,
-            w!(""),
+            installer_args.map(Into::into).unwrap_or(w!("")),
             w!("."),
             SW_SHOW,
         )

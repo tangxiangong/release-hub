@@ -3,7 +3,7 @@ use httpmock::Method::GET;
 use httpmock::MockServer;
 use release_hub::{Config, EndpointSource, InstallerKind, Update, UpdaterBuilder};
 use semver::Version;
-use std::{path::PathBuf, time::Duration};
+use std::{ffi::OsString, path::PathBuf, time::Duration};
 use url::Url;
 
 fn test_config(endpoint: Url) -> Config {
@@ -35,6 +35,7 @@ fn test_update(download_url: Url, signature: &str) -> Update {
         dangerous_accept_invalid_hostnames: false,
         extract_path: PathBuf::from("/tmp/release-hub"),
         app_name: "ReleaseHub".into(),
+        installer_args: Vec::new(),
     }
 }
 
@@ -210,7 +211,11 @@ async fn check_carries_transport_and_install_context_into_update() {
     let proxy = Url::parse("http://127.0.0.1:3128").unwrap();
     let executable_path = PathBuf::from("/tmp/ReleaseHub.app/Contents/MacOS/ReleaseHub");
     let extract_path = PathBuf::from("/tmp/ReleaseHub.app");
-    let updater = UpdaterBuilder::new("ReleaseHub", "1.0.0", test_config(endpoint.clone()))
+    let mut config = test_config(endpoint.clone());
+    config.windows = Some(release_hub::WindowsConfig {
+        installer_args: vec![OsString::from("/quiet"), OsString::from("/norestart")],
+    });
+    let updater = UpdaterBuilder::new("ReleaseHub", "1.0.0", config)
         .target("linux-x86_64")
         .source(Box::new(EndpointSource::new(vec![endpoint])))
         .header(AUTHORIZATION, HeaderValue::from_static("Bearer test-token"))
@@ -218,6 +223,7 @@ async fn check_carries_transport_and_install_context_into_update() {
         .timeout(Duration::from_secs(9))
         .proxy(proxy.clone())
         .no_proxy()
+        .installer_arg("/passive")
         .executable_path(&executable_path)
         .build()
         .unwrap();
@@ -233,4 +239,12 @@ async fn check_carries_transport_and_install_context_into_update() {
     assert!(update.no_proxy);
     assert_eq!(update.extract_path, extract_path);
     assert_eq!(update.app_name, "ReleaseHub");
+    assert_eq!(
+        update.installer_args,
+        vec![
+            OsString::from("/quiet"),
+            OsString::from("/norestart"),
+            OsString::from("/passive")
+        ]
+    );
 }
