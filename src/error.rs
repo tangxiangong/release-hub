@@ -27,6 +27,8 @@ pub enum Error {
     InsecureTransportProtocol,
     #[error("the platform `{0}` was not found on the response `platforms` object")]
     TargetNotFound(String),
+    #[error("missing signature asset for `{0}`")]
+    MissingSignatureAsset(String),
     #[error("`{0}`")]
     Network(String),
     #[error("invalid updater binary format")]
