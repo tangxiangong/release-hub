@@ -1,8 +1,10 @@
 use semver::Version;
-use serde::{de::Error as DeError, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use url::Url;
+
+use crate::InstallerKind;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ReleaseManifestPlatform {
@@ -96,4 +98,18 @@ impl RemoteRelease {
                 .ok_or_else(|| crate::Error::TargetNotFound(target.into())),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Update {
+    pub current_version: Version,
+    pub version: Version,
+    pub date: Option<OffsetDateTime>,
+    pub body: Option<String>,
+    pub raw_json: serde_json::Value,
+    pub download_url: Url,
+    pub signature: String,
+    pub pubkey: String,
+    pub target: String,
+    pub installer_kind: InstallerKind,
 }

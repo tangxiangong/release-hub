@@ -7,78 +7,87 @@
 // Licensed under MIT OR MIT/Apache-2.0
 
 use crate::{
-    Error, GitHubAsset, GitHubClient, GitHubRelease, Result, extract_path_from_executable,
+    Config, EndpointSource, Error, InstallerKind, ReleaseSource, Result, SourceRequest, TargetInfo,
+    Update, extract_path_from_executable,
 };
 use futures_util::StreamExt;
-use http::{HeaderName, header::ACCEPT};
-use reqwest::{
-    ClientBuilder,
-    header::{HeaderMap, HeaderValue},
+use http::{
+    HeaderName,
+    header::{ACCEPT, HeaderMap, HeaderValue},
 };
+use reqwest::ClientBuilder;
 use semver::Version;
 use std::{
     env::current_exe,
     ffi::OsString,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 use url::Url;
 
 const UPDATER_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
-// Builder and core updater logic.
-//
-// This module exposes the `UpdaterBuilder` used to configure the updater
-// and the `Updater` type that performs release checks, downloads and
-// installation on supported platforms.
+pub type VersionComparator =
+    Arc<dyn Fn(Version, crate::RemoteRelease) -> bool + Send + Sync + 'static>;
 
 /// Configures and creates an [`Updater`].
 pub struct UpdaterBuilder {
     app_name: String,
-    github_owner: String,
-    github_repo: String,
-    current_version: String,
-    executable_path: Option<PathBuf>,
+    current_version: Version,
+    config: Config,
+    target: Option<String>,
+    source: Option<Box<dyn ReleaseSource>>,
     headers: HeaderMap,
     timeout: Option<Duration>,
     proxy: Option<Url>,
+    no_proxy: bool,
+    executable_path: Option<PathBuf>,
     installer_args: Vec<OsString>,
-    current_exe_args: Vec<OsString>,
+    version_comparator: Option<VersionComparator>,
 }
 
 impl UpdaterBuilder {
-    /// Create a new builder.
-    ///
-    /// - `app_name`: Display name used in temp file prefixes and logs.
-    /// - `current_version`: Your app's current semantic version.
-    /// - `github_owner`/`github_repo`: Repository to query releases from.
-    pub fn new(
-        app_name: &str,
-        current_version: &str,
-        github_owner: &str,
-        github_repo: &str,
-    ) -> Self {
+    pub fn new(app_name: &str, current_version: &str, config: Config) -> Self {
         Self {
-            installer_args: Vec::new(),
-            current_exe_args: Vec::new(),
             app_name: app_name.to_owned(),
-            current_version: current_version.to_owned(),
-            executable_path: None,
-            github_owner: github_owner.to_owned(),
-            github_repo: github_repo.to_owned(),
+            current_version: Version::parse(current_version).expect("valid semver"),
+            config,
+            target: None,
+            source: None,
             headers: HeaderMap::new(),
             timeout: None,
             proxy: None,
+            no_proxy: false,
+            executable_path: None,
+            installer_args: Vec::new(),
+            version_comparator: None,
         }
     }
 
-    /// Override the executable path used to derive install/extract target.
+    pub fn target(mut self, target: impl Into<String>) -> Self {
+        self.target = Some(target.into());
+        self
+    }
+
+    pub fn source(mut self, source: Box<dyn ReleaseSource>) -> Self {
+        self.source = Some(source);
+        self
+    }
+
+    pub fn version_comparator<F>(mut self, comparator: F) -> Self
+    where
+        F: Fn(Version, crate::RemoteRelease) -> bool + Send + Sync + 'static,
+    {
+        self.version_comparator = Some(Arc::new(comparator));
+        self
+    }
+
     pub fn executable_path<P: AsRef<Path>>(mut self, p: P) -> Self {
         self.executable_path.replace(p.as_ref().into());
         self
     }
 
-    /// Add a single HTTP header applied to the download request.
     pub fn header<K, V>(mut self, key: K, value: V) -> Result<Self>
     where
         HeaderName: TryFrom<K>,
@@ -90,35 +99,34 @@ impl UpdaterBuilder {
         let value: std::result::Result<HeaderValue, http::Error> =
             value.try_into().map_err(Into::into);
         self.headers.insert(key?, value?);
-
         Ok(self)
     }
 
-    /// Replace all headers with the provided map.
     pub fn headers(mut self, headers: HeaderMap) -> Self {
         self.headers = headers;
         self
     }
 
-    /// Remove all configured headers.
     pub fn clear_headers(mut self) -> Self {
         self.headers.clear();
         self
     }
 
-    /// Set a request timeout for downloads.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
-    /// Route network requests through the given proxy.
     pub fn proxy(mut self, proxy: Url) -> Self {
-        self.proxy.replace(proxy);
+        self.proxy = Some(proxy);
         self
     }
 
-    /// Append a single argument to the platform installer invocation (if used).
+    pub fn no_proxy(mut self) -> Self {
+        self.no_proxy = true;
+        self
+    }
+
     pub fn installer_arg<S>(mut self, arg: S) -> Self
     where
         S: Into<OsString>,
@@ -127,7 +135,6 @@ impl UpdaterBuilder {
         self
     }
 
-    /// Append multiple installer arguments.
     pub fn installer_args<I, S>(mut self, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -137,151 +144,137 @@ impl UpdaterBuilder {
         self
     }
 
-    /// Clear all installer arguments.
     pub fn clear_installer_args(mut self) -> Self {
         self.installer_args.clear();
         self
     }
 
-    /// Finalize configuration and create an [`Updater`].
     pub fn build(self) -> Result<Updater> {
-        let executable_path = self.executable_path.clone().unwrap_or(current_exe()?);
+        self.config.validate()?;
 
-        // Get the extract_path from the provided executable_path
+        let target = match self.target {
+            Some(target) => target,
+            None => TargetInfo::from_system(crate::SystemInfo::current()?).target,
+        };
+        let source = match self.source {
+            Some(source) => Arc::<dyn ReleaseSource>::from(source),
+            None => Arc::new(EndpointSource::new(self.config.endpoints.clone())),
+        };
+
+        let executable_path = self.executable_path.unwrap_or(current_exe()?);
         let extract_path = if cfg!(target_os = "linux") {
             executable_path
         } else {
             extract_path_from_executable(&executable_path)?
         };
 
-        let github_client = GitHubClient::new(&self.github_owner, &self.github_repo);
-
-        let current_version = Version::parse(&self.current_version)?;
-
         Ok(Updater {
             app_name: self.app_name,
-            current_version,
-            proxy: self.proxy,
-            installer_args: self.installer_args,
-            current_exe_args: self.current_exe_args,
+            current_version: self.current_version,
+            config: self.config,
+            target,
+            source,
             headers: self.headers,
             timeout: self.timeout,
+            proxy: self.proxy,
+            no_proxy: self.no_proxy,
             extract_path,
-            github_client,
-            latest_release: None,
-            proper_asset: None,
+            installer_args: self.installer_args,
+            version_comparator: self.version_comparator,
         })
     }
 }
 
-#[derive(Debug, Clone)]
 /// Updater instance capable of checking, downloading and installing updates.
 pub struct Updater {
     pub app_name: String,
     pub current_version: Version,
-    pub proxy: Option<Url>,
-    pub github_client: GitHubClient,
+    pub config: Config,
+    pub target: String,
+    source: Arc<dyn ReleaseSource>,
     pub headers: HeaderMap,
-    pub extract_path: PathBuf,
     pub timeout: Option<Duration>,
+    pub proxy: Option<Url>,
+    pub no_proxy: bool,
+    pub extract_path: PathBuf,
     pub installer_args: Vec<OsString>,
-    pub current_exe_args: Vec<OsString>,
-    pub latest_release: Option<GitHubRelease>,
-    pub proper_asset: Option<GitHubAsset>,
+    pub version_comparator: Option<VersionComparator>,
 }
 
 impl Updater {
-    /// Fetch the latest GitHub release and convert it into a simplified structure.
-    pub async fn latest_release(&self) -> Result<GitHubRelease> {
-        self.github_client.get_latest_release().await?.try_into()
-    }
-
-    /// The version of the latest release if it has been previously cached on this instance.
     pub fn latest_version(&self) -> Option<Version> {
-        self.latest_release
-            .as_ref()
-            .map(|release| release.version.clone())
+        None
     }
 
-    /// The size in bytes of the asset selected for this platform, if already resolved.
-    pub fn asset_size(&self) -> Option<u64> {
-        self.proper_asset.as_ref().map(|asset| asset.size)
-    }
+    pub async fn check(&self) -> Result<Option<Update>> {
+        let request = SourceRequest::new(self.target.clone());
+        let release = self.source.fetch(&request).await?;
 
-    /// Resolve the proper asset for the current OS/arch.
-    pub async fn proper_asset(&self) -> Result<GitHubAsset> {
-        let release = self.latest_release().await?;
-        release.find_proper_asset()
-    }
-
-    /// Check for a newer version. Returns `Ok(Some(Updater))` configured with the
-    /// selected asset if an update is available, or `Ok(None)` if up-to-date.
-    pub async fn check(&self) -> Result<Option<Updater>> {
-        let latest_release = self.latest_release().await?;
-        if latest_release.version > self.current_version {
-            let asset = latest_release.find_proper_asset()?;
-            Ok(Some(Self {
-                latest_release: Some(latest_release),
-                proper_asset: Some(asset),
-                ..self.clone()
-            }))
+        let has_update = if let Some(comparator) = &self.version_comparator {
+            comparator(self.current_version.clone(), release.clone())
         } else {
-            Ok(None)
+            release.version > self.current_version
+        };
+        if !has_update {
+            return Ok(None);
         }
+
+        Ok(Some(Update {
+            current_version: self.current_version.clone(),
+            version: release.version.clone(),
+            date: release.pub_date,
+            body: release.notes.clone(),
+            raw_json: serde_json::to_value(&release)?,
+            download_url: release.download_url(&self.target)?.clone(),
+            signature: release.signature(&self.target)?.clone(),
+            pubkey: self.config.pubkey.clone(),
+            target: self.target.clone(),
+            installer_kind: InstallerKind::from_path(Path::new(
+                release.download_url(&self.target)?.path(),
+            ))?,
+        }))
     }
 
-    /// Check for updates and download/install if available.
-    ///
-    /// This is a convenience method that combines [`Updater::check()`] and [`Updater::download_and_install()`].
-    /// Returns `Ok(true)` if an update was found and installed, `Ok(false)` if no update was needed.
-    pub async fn update<C: FnMut(usize)>(
-        &self,
-        on_chunk: C,
-        // on_download_finish: D,
-    ) -> Result<bool> {
-        if let Some(updater) = self.check().await? {
-            updater.download_and_install(on_chunk).await?;
+    pub async fn update<C: FnMut(usize)>(&self, on_chunk: C) -> Result<bool> {
+        if let Some(update) = self.check().await? {
+            self.download_and_install(&update, on_chunk).await?;
             Ok(true)
         } else {
             Ok(false)
         }
     }
-}
 
-impl Updater {
-    /// Downloads the updater package, verifies it then return it as bytes.
-    ///
-    /// Use [`Updater::install`] to install it
+    /// Downloads the updater package, verifies it then returns it as bytes.
     pub async fn download<C: FnMut(usize)>(
         &self,
+        update: &Update,
         mut on_chunk: C,
-        // on_download_finish: D,
     ) -> Result<Vec<u8>> {
-        // Fallback to reqwest if octocrab is not available
         let mut headers = self.headers.clone();
         if !headers.contains_key(ACCEPT) {
             headers.insert(ACCEPT, HeaderValue::from_static("application/octet-stream"));
         }
 
         let mut request = ClientBuilder::new().user_agent(UPDATER_USER_AGENT);
+        if self.config.dangerous_accept_invalid_certs {
+            request = request.danger_accept_invalid_certs(true);
+        }
+        if self.config.dangerous_accept_invalid_hostnames {
+            request = request.danger_accept_invalid_hostnames(true);
+        }
         if let Some(timeout) = self.timeout {
             request = request.timeout(timeout);
         }
-        if let Some(ref proxy) = self.proxy {
+        if self.no_proxy {
+            request = request.no_proxy();
+        } else if let Some(ref proxy) = self.proxy {
             let proxy = reqwest::Proxy::all(proxy.as_str())?;
             request = request.proxy(proxy);
         }
 
-        let download_url = self
-            .proper_asset
-            .clone()
-            .ok_or(Error::AssetNotFound)?
-            .browser_download_url
-            .clone();
-
         let response = request
             .build()?
-            .get(download_url)
+            .get(update.download_url.clone())
             .headers(headers)
             .send()
             .await?;
@@ -294,7 +287,6 @@ impl Updater {
         }
 
         let mut buffer = Vec::new();
-
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
@@ -304,7 +296,7 @@ impl Updater {
         Ok(buffer)
     }
 
-    /// Installs the updater package downloaded by [`Updater::download`]
+    /// Installs the updater package downloaded by [`Updater::download`].
     pub fn install(&self, bytes: impl AsRef<[u8]>) -> Result<()> {
         self.install_inner(bytes.as_ref())
     }
@@ -313,13 +305,23 @@ impl Updater {
         self.relaunch_inner()
     }
 
-    /// Downloads and installs the updater package
     pub async fn download_and_install<C: FnMut(usize)>(
         &self,
+        update: &Update,
         on_chunk: C,
-        // on_download_finish: D,
     ) -> Result<()> {
-        let bytes = self.download(on_chunk).await?;
+        let bytes = self.download(update, on_chunk).await?;
         self.install(bytes)
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+impl Updater {
+    pub(crate) fn install_inner(&self, _bytes: &[u8]) -> Result<()> {
+        Err(Error::UnsupportedOs)
+    }
+
+    pub(crate) fn relaunch_inner(&self) -> Result<()> {
+        Err(Error::UnsupportedOs)
     }
 }

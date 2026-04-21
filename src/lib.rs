@@ -11,7 +11,7 @@
 // This crate is forked and modified from the [tauri-apps/tauri-plugin-updater](https://github.com/tauri-apps/plugins-workspace/tree/v2/plugins/updater), which is licensed under [MIT](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/LICENSE_MIT) or [Apache 2.0](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/LICENSE_APACHE-2.0)/[MIT](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/LICENSE_MIT).
 
 mod builder;
-pub use builder::*;
+pub use builder::{Updater, UpdaterBuilder, VersionComparator};
 mod config;
 pub use config::*;
 mod error;
@@ -24,7 +24,7 @@ mod target;
 pub use target::*;
 pub mod github;
 mod release;
-pub use release::*;
+pub use release::{ReleaseManifestPlatform, RemoteRelease, RemoteReleaseInner, Update};
 #[cfg(target_os = "macos")]
 /// macOS installation and relaunch implementation.
 ///
@@ -40,4 +40,4 @@ mod macos;
 mod windows;
 pub use github::*;
 mod utils;
-pub use utils::{extract_path_from_executable, BundleType};
+pub use utils::{BundleType, extract_path_from_executable};
