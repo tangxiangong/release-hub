@@ -1,9 +1,9 @@
 <div align=center>
-<h1 aligh="center">
+<h1 align="center">
 ReleaseHub
 </h1>
 <p align="center">
-A simple, cross-platform auto-updater for Rust desktop GUI applications.
+A source-agnostic auto-updater for Rust desktop applications.
 </p>
 <p align="center">
 <a href="https://crates.io/crates/release-hub"> <img alt="Crates.io Version" src="https://img.shields.io/crates/v/release-hub?style=for-the-badge"> </a>
@@ -12,118 +12,131 @@ A simple, cross-platform auto-updater for Rust desktop GUI applications.
 </p>
 </div>
 
-
-This crate helps your application check for the latest GitHub Releases and download/install the proper artifact for the current platform. It focuses on a minimal API surface, safe defaults, and a predictable end-user experience on macOS and Windows.
+`release-hub` checks for signed updates, downloads the artifact for the current target,
+and hands installation off to the platform-specific path for that package type.
+The primary workflow is manifest-first: your app points at an HTTPS endpoint that serves
+release metadata plus a minisign signature for each artifact. GitHub Releases support is
+still available, but now as an optional source adapter instead of the crate's core model.
 
 ## Features
 
-- **GitHub Releases integration** via `octocrab`
-- **Semantic versioning** with `semver`
-- **Platform-aware asset selection** (macOS .app.zip, Windows .exe/.msi)
-- **Progress callback** during download
-- **Pluggable headers, proxy and timeout**
-- **Atomic install flow** with privilege elevation when required
+- Manifest-first update checks from HTTPS endpoints
+- Minisign verification before install
+- Pluggable release sources through `ReleaseSource`
+- Target-aware artifact resolution from a single release manifest
+- Download progress callbacks during install
+- Configurable headers, proxy, timeout, and executable path overrides
 
 ## Supported platforms
 
-- macOS (unpacks `.app.zip` and swaps the app bundle atomically)
-- Windows (downloads `.exe`/`.msi` installer, launches with elevation when needed)
+- macOS: installs `.app.tar.gz` and `.app.zip` bundles by replacing the app bundle
+- Windows: launches `.exe` and `.msi` installers, including configured installer arguments
+- Linux: replaces `.AppImage` files in place and launches `.deb` / `.rpm` installs through `pkexec`
 
-Linux is currently not supported for install flow. The crate compiles on Linux for development, but installation logic is provided only for macOS and Windows.
+`Updater::relaunch()` is currently implemented only on macOS and Windows.
 
 ## Quick start
 
-Add to your Cargo.toml:
+Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
 release-hub = "*"
 ```
 
-Basic usage:
-
-```rust
-use release_hub::{UpdaterBuilder};
-use semver::Version;
+```rust,no_run
+use release_hub::{Config, UpdaterBuilder};
+use url::Url;
 
 #[tokio::main]
-async fn main() -> release_hub::Result<()> {
-    let updater = UpdaterBuilder::new(
-        "MyApp",                       // Application name (for temp files / logs)
-        "0.1.0",                       // Current version
-        "owner",                       // GitHub owner
-        "repo",                        // GitHub repo
-    )
-    .build()?;
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config {
+        endpoints: vec![Url::parse("https://updates.example.com/latest.json")?],
+        pubkey: "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3".into(),
+        ..Default::default()
+    };
 
-    // Option A: one-shot convenience
-    let updated = updater.update(|chunk| {
-        // chunk = size of bytes received in this tick
-        let _ = chunk;
-    }).await?;
-
-    if updated {
-        // Relaunch when appropriate for your app lifecycle
-        // updater.relaunch()?;
+    let updater = UpdaterBuilder::new("MyApp", "1.0.0", config).build()?;
+    if let Some(update) = updater.check().await? {
+        update
+            .download_and_install(|chunk| eprintln!("downloaded {chunk} bytes"))
+            .await?;
     }
 
     Ok(())
 }
 ```
 
-Manual flow:
+## Endpoint manifests and minisign verification
 
-```rust
-let updater = /* build as above */;
-if let Some(ready) = updater.check().await? {
-    let bytes = ready.download(|_| {}).await?;
-    ready.install(bytes)?;
-    // ready.relaunch()?; // Optional: relaunch the updated app
+`Config::endpoints` is the default source. Each endpoint should return release metadata
+for the latest version and provide a minisign signature for every platform artifact.
+
+```json
+{
+  "version": "1.0.1",
+  "notes": "Bug fixes and stability improvements.",
+  "pub_date": "2026-04-21T12:00:00Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "url": "https://updates.example.com/MyApp-aarch64.app.tar.gz",
+      "signature": "untrusted comment: signature from minisign secret key\nRW..."
+    },
+    "linux-x86_64": {
+      "url": "https://updates.example.com/MyApp-x86_64.AppImage",
+      "signature": "untrusted comment: signature from minisign secret key\nRW..."
+    },
+    "windows-x86_64": {
+      "url": "https://updates.example.com/MyApp-x86_64.msi",
+      "signature": "untrusted comment: signature from minisign secret key\nRW..."
+    }
+  }
 }
 ```
 
-## Configuration highlights
+The updater selects the entry matching the current target, downloads the artifact,
+verifies it with the configured public key, and then runs the install path for that
+artifact type.
 
-- **Headers**: attach custom HTTP headers to the download request
-- **Proxy**: route download traffic via a proxy (e.g. corporate networks)
-- **Timeout**: set a global request timeout
-- **Executable path**: override auto-detected path used to compute install target
+## GitHub releases as a source adapter
 
-Example:
+Use `GitHubSource` when your release metadata lives in GitHub Releases but you still
+want the same updater flow. The GitHub adapter expects the target asset plus a paired
+`.sig` or `.minisig` asset on the release.
 
-```rust
-use http::header::{AUTHORIZATION, HeaderValue};
-use url::Url;
+```rust,no_run
+use release_hub::{Config, GitHubSource, UpdaterBuilder};
 
-let updater = UpdaterBuilder::new("MyApp", "0.1.0", "owner", "repo")
-    .header(AUTHORIZATION, HeaderValue::from_static("token OAUTH_OR_PAT"))?
-    .proxy(Url::parse("http://proxy.local:8080").unwrap())
-    .timeout(std::time::Duration::from_secs(60))
-    .build()?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config {
+        pubkey: "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3".into(),
+        ..Default::default()
+    };
+
+    let updater = UpdaterBuilder::new("MyApp", "1.0.0", config)
+        .source(Box::new(GitHubSource::new("owner", "repo")))
+        .build()?;
+
+    let _ = updater;
+    Ok(())
+}
 ```
 
-## How it works
+## Configuration notes
 
-1. Queries the GitHub API for the latest release
-2. Parses assets and picks the correct file for the current OS and CPU arch
-3. Downloads the asset with progress callback
-4. Installs it:
-   - macOS: extracts `.app.zip`, replaces the `.app` atomically, elevating when necessary
-   - Windows: writes installer to a temp location and launches it with elevation
+- `header(...)` and `headers(...)` let you attach authentication or cache-control headers
+- `proxy(...)` and `no_proxy()` control HTTP routing
+- `timeout(...)` sets a request timeout for manifest fetches and downloads
+- `executable_path(...)` overrides the detected install target when your app needs it
+- `installer_arg(...)` and `installer_args(...)` append extra Windows installer arguments
 
-## Safety and permissions
+## Install behavior by package type
 
-- Windows installer is launched with `ShellExecuteW` and `runas` verb for elevation
-- macOS uses AppleScript to move bundles when admin privileges are needed
-- Operations attempt to be atomic and restore from backup on failure when possible
-
-## FAQ
-
-- Q: Where should I call `relaunch()`?
-  A: Only after your UI and background tasks are safely shut down. On Windows, the installer typically handles termination. On macOS, you control when to reopen the app.
-
-- Q: How are assets matched?
-  A: Filenames are inspected for OS and arch markers, and known extensions are matched: `.app.zip`, `.dmg`, `.exe`, `.msi`.
+- `.app.tar.gz` / `.app.zip`: extracted and swapped into place on macOS
+- `.exe` / `.msi`: written to a temporary path and launched on Windows
+- `.AppImage`: written to `current_executable.new` and atomically renamed on Linux
+- `.deb`: installed with `pkexec dpkg -i`
+- `.rpm`: installed with `pkexec rpm -U`
 
 ## Projects using this crate
 
@@ -138,15 +151,11 @@ let updater = UpdaterBuilder::new("MyApp", "0.1.0", "owner", "repo")
 - **Author**: The Tauri Programme
 - **License**: [MIT](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/LICENSE_MIT) OR [MIT](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/LICENSE_MIT)/[Apache 2.0](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/LICENSE_APACHE-2.0)
 - **Usage**: Implement updater for Dioxus apps or any other Rust GUI applications
-- **Copyright**:
-  ```
-  Copyright (c) 2015 - Present - The Tauri Programme within The Commons Conservancy.
-  ```
+- **Copyright**: Copyright (c) 2015 - Present - The Tauri Programme within The Commons Conservancy.
 - **Key Modifications**:
   - Adapt for universal Rust crate
   - Remove Tauri-specific runtime integration
-  - Use `octocrab` library for GitHub API interaction
-
+  - Add manifest-based endpoint sources and pluggable release-source adapters
 
 > **Detailed Info**: For complete attribution information, please refer to the [**NOTICE**](./NOTICE) file
 

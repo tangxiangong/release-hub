@@ -6,80 +6,21 @@
 // Copyright (c) 2015 - Present - The Tauri Programme within The Commons Conservancy.
 // Licensed under MIT OR MIT/Apache-2.0
 
-//! Platform and system utilities used by the updater.
-//!
-//! Provides small types to model the current OS/architecture and helpers to
-//! derive installation paths.
+//! Filesystem path helpers used by the updater.
 
 use crate::{Error, Result};
 use std::path::{Path, PathBuf};
 
-/// Supported operating systems.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OS {
-    Macos,
-    Windows,
-}
-
-impl std::fmt::Display for OS {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            OS::Macos => write!(f, "macos"),
-            OS::Windows => write!(f, "windows"),
-        }
-    }
-}
-
-/// Supported CPU architectures.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Arch {
-    X86_64,
-    Arm64,
-}
-
-impl std::fmt::Display for Arch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Arch::X86_64 => write!(f, "x86_64"),
-            Arch::Arm64 => write!(f, "arm64"),
-        }
-    }
-}
-
-/// Detected local system information.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SystemInfo {
-    pub os: OS,
-    pub arch: Arch,
-}
-
-impl SystemInfo {
-    /// Get local system info.
-    pub fn current() -> Result<Self> {
-        let os = if cfg!(target_os = "macos") {
-            OS::Macos
-        } else if cfg!(target_os = "windows") {
-            OS::Windows
-        } else {
-            return Err(Error::UnsupportedOs);
-        };
-        let arch = if cfg!(target_arch = "x86_64") {
-            Arch::X86_64
-        } else if cfg!(target_arch = "aarch64") {
-            Arch::Arm64
-        } else {
-            return Err(Error::UnsupportedArch);
-        };
-        Ok(Self { os, arch })
-    }
-}
-
 /// Bundle types supported by the installer logic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BundleType {
+    /// macOS `.app.zip` bundle.
     MacOSAppZip,
+    /// macOS DMG image.
     MacOSDMG,
+    /// Windows MSI installer.
     WindowsMSI,
+    /// Windows EXE / setup installer.
     WindowsSetUp,
 }
 

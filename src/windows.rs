@@ -6,11 +6,12 @@
 // Copyright (c) 2015 - Present - The Tauri Programme within The Commons Conservancy.
 // Licensed under MIT OR MIT/Apache-2.0
 
-use crate::{Error, Result, Updater};
+use crate::{Error, Result, Update, Updater, builder::windows_installer_args_command_line};
 use fs_err as fs;
+use semver::Version;
 use std::{
     ffi::OsString,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
     thread,
     time::Duration,
@@ -24,143 +25,146 @@ type WindowsUpdaterType = (PathBuf, Option<tempfile::TempPath>);
 static UPDATER_FILE: OnceLock<OsString> = OnceLock::new();
 static TEMP_FILE_KEEPER: Mutex<Option<tempfile::TempPath>> = Mutex::new(None);
 
+impl Update {
+    pub(crate) fn install_windows(&self, bytes: &[u8]) -> Result<()> {
+        launch_windows_installer(bytes, &self.app_name, &self.version, &self.installer_args)
+    }
+}
+
 impl Updater {
     pub(crate) fn install_inner(&self, bytes: &[u8]) -> Result<()> {
-        let updater_type = self.extract_exe(bytes)?;
-        let (temp_path, temp_keeper) = updater_type;
-
-        // Verify the installer file exists and is executable
-        if !temp_path.exists() {
-            return Err(Error::InvalidUpdaterFormat);
-        }
-
-        *TEMP_FILE_KEEPER.lock().unwrap() = temp_keeper;
-
-        let file = temp_path.as_os_str().to_os_string();
-        UPDATER_FILE
-            .set(file)
-            .map_err(|_| Error::InvalidUpdaterFormat)?;
-
-        Ok(())
+        launch_windows_installer(
+            bytes,
+            &self.app_name,
+            &self.current_version,
+            &self.installer_args,
+        )
     }
 
     pub(crate) fn relaunch_inner(&self) -> Result<()> {
-        let file = UPDATER_FILE.get().ok_or(Error::InvalidUpdaterFormat)?;
+        relaunch_windows(&self.installer_args)
+    }
+}
 
-        if !std::path::Path::new(file).exists() {
-            return Err(Error::InvalidUpdaterFormat);
-        }
+fn install_windows_with_label(bytes: &[u8], app_name: &str, version: &Version) -> Result<()> {
+    let (temp_path, temp_keeper) = extract_exe(bytes, app_name, version)?;
 
-        // Open the installer for manual installation with admin privileges if needed
-        let file_hstring: HSTRING = file.clone().into();
+    if !temp_path.exists() {
+        return Err(Error::InvalidUpdaterFormat);
+    }
 
-        // Open the installer for manual installation with admin privileges if needed
-        let result = unsafe {
-            ShellExecuteW(
-                Some(HWND::default()),
-                w!("runas"), // Request administrator privileges for installation
-                &file_hstring,
-                w!(""),
-                w!("."),
-                SW_SHOW,
-            )
-        }
-        .0 as i32;
+    *TEMP_FILE_KEEPER.lock().unwrap() = temp_keeper;
 
-        // Check the result of ShellExecuteW
-        // Values <= 32 indicate an error
-        if result <= 32 {
-            *TEMP_FILE_KEEPER.lock().unwrap() = None;
-            return match result {
-                2 => Err(crate::Error::InvalidUpdaterFormat), // ERROR_FILE_NOT_FOUND
-                5 => Err(crate::Error::InsufficientPrivileges), // ERROR_ACCESS_DENIED
-                32 => Err(crate::Error::FileInUse),           // ERROR_SHARING_VIOLATION
-                1223 => Err(crate::Error::UserCancelledElevation), // ERROR_CANCELLED (UAC cancelled)
-                _ => Err(crate::Error::InstallerExecutionFailed(result)),
-            };
-        }
+    let file = temp_path.as_os_str().to_os_string();
+    UPDATER_FILE
+        .set(file)
+        .map_err(|_| Error::InvalidUpdaterFormat)?;
 
+    Ok(())
+}
+
+fn launch_windows_installer(
+    bytes: &[u8],
+    app_name: &str,
+    version: &Version,
+    installer_args: &[OsString],
+) -> Result<()> {
+    install_windows_with_label(bytes, app_name, version)?;
+    relaunch_windows(installer_args)
+}
+
+fn relaunch_windows(installer_args: &[OsString]) -> Result<()> {
+    let file = UPDATER_FILE.get().ok_or(Error::InvalidUpdaterFormat)?;
+
+    if !Path::new(file).exists() {
+        return Err(Error::InvalidUpdaterFormat);
+    }
+
+    let file_hstring: HSTRING = file.clone().into();
+    let installer_args = windows_installer_args_command_line(installer_args);
+    let installer_args_hstring = installer_args.as_ref().map(HSTRING::from);
+    let installer_args = installer_args_hstring.as_ref();
+    let result = unsafe {
+        ShellExecuteW(
+            Some(HWND::default()),
+            w!("runas"),
+            &file_hstring,
+            installer_args.map(Into::into).unwrap_or(w!("")),
+            w!("."),
+            SW_SHOW,
+        )
+    }
+    .0 as i32;
+
+    if result <= 32 {
         *TEMP_FILE_KEEPER.lock().unwrap() = None;
-
-        // Give the installer a moment to start before exiting
-        thread::sleep(Duration::from_millis(500));
-        std::process::exit(0);
+        return match result {
+            2 => Err(crate::Error::InvalidUpdaterFormat),
+            5 => Err(crate::Error::InsufficientPrivileges),
+            32 => Err(crate::Error::FileInUse),
+            1223 => Err(crate::Error::UserCancelledElevation),
+            _ => Err(crate::Error::InstallerExecutionFailed(result)),
+        };
     }
 
-    fn make_temp_dir(&self) -> Result<PathBuf> {
-        // Try to create temp directory in system temp first, fallback to current directory
-        let temp_dir = tempfile::Builder::new()
-            .prefix(&format!(
-                "{}-{}-updater-",
-                self.app_name,
-                self.latest_version()
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "unknown".to_string())
-            ))
-            .tempdir();
+    *TEMP_FILE_KEEPER.lock().unwrap() = None;
+    thread::sleep(Duration::from_millis(500));
+    std::process::exit(0);
+}
 
-        match temp_dir {
-            Ok(dir) => {
-                let path = dir.keep();
-                // Ensure the directory exists and is writable
-                if path.exists() && path.is_dir() {
-                    Ok(path)
-                } else {
-                    Err(crate::Error::TempDirNotFound)
-                }
-            }
-            Err(_) => {
-                // Fallback: try to create in current directory
-                let fallback_dir = std::env::current_dir()?.join(format!(
-                    "{}-{}-updater-temp",
-                    self.app_name,
-                    self.latest_version()
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "unknown".to_string())
-                ));
+fn make_temp_dir(app_name: &str, version: &Version) -> Result<PathBuf> {
+    let temp_dir = tempfile::Builder::new()
+        .prefix(&format!("{app_name}-{version}-updater-"))
+        .tempdir();
 
-                fs::create_dir_all(&fallback_dir)?;
-                Ok(fallback_dir)
+    match temp_dir {
+        Ok(dir) => {
+            let path = dir.keep();
+            if path.exists() && path.is_dir() {
+                Ok(path)
+            } else {
+                Err(crate::Error::TempDirNotFound)
             }
         }
-    }
+        Err(_) => {
+            let fallback_dir =
+                std::env::current_dir()?.join(format!("{app_name}-{version}-updater-temp"));
 
-    fn extract_exe(&self, bytes: &[u8]) -> Result<WindowsUpdaterType> {
-        let (path, temp) = self.write_to_temp(bytes, ".exe")?;
-        Ok((path, temp))
-    }
-
-    fn write_to_temp(
-        &self,
-        bytes: &[u8],
-        ext: &str,
-    ) -> Result<(PathBuf, Option<tempfile::TempPath>)> {
-        use std::io::Write;
-
-        let temp_dir = self.make_temp_dir()?;
-        let mut temp_file = tempfile::Builder::new()
-            .prefix(&format!(
-                "{}-{}-installer",
-                self.app_name,
-                self.latest_version()
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "unknown".to_string())
-            ))
-            .suffix(ext)
-            .rand_bytes(0)
-            .tempfile_in(&temp_dir)?;
-
-        temp_file.write_all(bytes)?;
-        temp_file.flush()?; // Ensure all data is written to disk
-
-        let temp = temp_file.into_temp_path();
-        let temp_path = temp.to_path_buf();
-
-        // Verify the file was written correctly
-        if !temp_path.exists() || fs::metadata(&temp_path)?.len() != bytes.len() as u64 {
-            return Err(crate::Error::InvalidUpdaterFormat);
+            fs::create_dir_all(&fallback_dir)?;
+            Ok(fallback_dir)
         }
-
-        Ok((temp_path, Some(temp)))
     }
+}
+
+fn extract_exe(bytes: &[u8], app_name: &str, version: &Version) -> Result<WindowsUpdaterType> {
+    let (path, temp) = write_to_temp(bytes, app_name, version, ".exe")?;
+    Ok((path, temp))
+}
+
+fn write_to_temp(
+    bytes: &[u8],
+    app_name: &str,
+    version: &Version,
+    ext: &str,
+) -> Result<(PathBuf, Option<tempfile::TempPath>)> {
+    use std::io::Write;
+
+    let temp_dir = make_temp_dir(app_name, version)?;
+    let mut temp_file = tempfile::Builder::new()
+        .prefix(&format!("{app_name}-{version}-installer"))
+        .suffix(ext)
+        .rand_bytes(0)
+        .tempfile_in(&temp_dir)?;
+
+    temp_file.write_all(bytes)?;
+    temp_file.flush()?;
+
+    let temp = temp_file.into_temp_path();
+    let temp_path = temp.to_path_buf();
+
+    if !temp_path.exists() || fs::metadata(&temp_path)?.len() != bytes.len() as u64 {
+        return Err(crate::Error::InvalidUpdaterFormat);
+    }
+
+    Ok((temp_path, Some(temp)))
 }

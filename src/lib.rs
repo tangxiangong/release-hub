@@ -1,4 +1,4 @@
-#![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
+#![doc = include_str!("../README.md")]
 
 // Copyright (c) 2015 - Present - The Tauri Programme within The Commons Conservancy.
 //
@@ -11,10 +11,22 @@
 // This crate is forked and modified from the [tauri-apps/tauri-plugin-updater](https://github.com/tauri-apps/plugins-workspace/tree/v2/plugins/updater), which is licensed under [MIT](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/LICENSE_MIT) or [Apache 2.0](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/LICENSE_APACHE-2.0)/[MIT](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/LICENSE_MIT).
 
 mod builder;
-pub use builder::*;
+pub use builder::{Updater, UpdaterBuilder, VersionComparator};
+mod config;
+pub use config::*;
 mod error;
 pub use error::*;
-pub mod github;
+mod linux;
+pub use linux::LinuxInstallCommand;
+mod verify;
+pub use verify::*;
+/// Release source implementations and the source abstraction used by the updater.
+pub mod source;
+pub use source::*;
+mod target;
+pub use target::*;
+mod release;
+pub use release::{ReleaseManifestPlatform, RemoteRelease, RemoteReleaseInner, Update};
 #[cfg(target_os = "macos")]
 /// macOS installation and relaunch implementation.
 ///
@@ -28,6 +40,6 @@ mod macos;
 /// elevation using `ShellExecuteW` and the `runas` verb. Handles common error
 /// cases like access denied or user-cancelled elevation.
 mod windows;
-pub use github::*;
-pub mod utils;
-pub use utils::*;
+pub use source::github::GitHubSource;
+mod utils;
+pub use utils::{BundleType, extract_path_from_executable};
