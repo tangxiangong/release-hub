@@ -25,8 +25,9 @@ fn main() {
 #[component]
 fn App() -> Element {
     let phase = use_signal(|| Phase::Idle);
-    let status =
-        use_signal(|| "Click \"Check for updates\" to query the latest GitHub release.".to_string());
+    let status = use_signal(|| {
+        "Click \"Check for updates\" to query the latest GitHub release.".to_string()
+    });
     let source_mode = use_signal(|| "anonymous GitHub API access".to_string());
     let downloaded_bytes = use_signal(|| 0usize);
     let pending_update = use_signal(|| Option::<Update>::None);
@@ -34,8 +35,7 @@ fn App() -> Element {
     let is_busy = matches!(phase(), Phase::Checking | Phase::Installing);
 
     rsx! {
-        div {
-            style: "font-family: sans-serif; max-width: 42rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.5;",
+        div { style: "font-family: sans-serif; max-width: 42rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.5;",
 
             h1 { "release-hub + Dioxus + GitHub Releases" }
 
@@ -44,8 +44,7 @@ fn App() -> Element {
                 "and downloads plus installs the update for the current platform."
             }
 
-            div {
-                style: "display: flex; gap: 0.75rem; margin: 1.5rem 0;",
+            div { style: "display: flex; gap: 0.75rem; margin: 1.5rem 0;",
 
                 button {
                     disabled: is_busy,
@@ -60,31 +59,35 @@ fn App() -> Element {
                             phase.set(Phase::Checking);
                             downloaded_bytes.set(0);
                             pending_update.set(None);
-                            status.set(format!(
-                                "Checking GitHub releases for {GITHUB_OWNER}/{GITHUB_REPO}..."
-                            ));
-
+                            status
+                                .set(
+                                    format!(
+                                        "Checking GitHub releases for {GITHUB_OWNER}/{GITHUB_REPO}...",
+                                    ),
+                                );
                             match build_updater() {
                                 Ok((updater, auth_mode)) => {
                                     source_mode.set(auth_mode);
-
                                     match updater.check().await {
                                         Ok(Some(update)) => {
                                             let next_version = update.version.clone();
                                             let notes = update
                                                 .body
                                                 .clone()
-                                                .unwrap_or_else(|| "No release notes were provided.".to_string());
-
+                                                .unwrap_or_else(|| {
+                                                    "No release notes were provided.".to_string()
+                                                });
                                             pending_update.set(Some(update));
                                             phase.set(Phase::ReadyToInstall);
-                                            status.set(format!(
-                                                "Update {next_version} is available. {notes}"
-                                            ));
+                                            status
+                                                .set(
+                                                    format!("Update {next_version} is available. {notes}"),
+                                                );
                                         }
                                         Ok(None) => {
                                             phase.set(Phase::Idle);
-                                            status.set("You are already on the latest version.".to_string());
+                                            status
+                                                .set("You are already on the latest version.".to_string());
                                         }
                                         Err(error) => {
                                             phase.set(Phase::Error);
@@ -117,22 +120,17 @@ fn App() -> Element {
                                     spawn(async move {
                                         phase.set(Phase::Installing);
                                         downloaded_bytes.set(0);
-                                        status.set(format!(
-                                            "Downloading and installing {}...",
-                                            update.version
-                                        ));
-
-                                        match update
-                                            .download_and_install(|chunk| downloaded_bytes.set(chunk))
-                                            .await
+                                        status.set(format!("Downloading and installing {}...", update.version));
+                                        match update.download_and_install(|chunk| downloaded_bytes.set(chunk)).await
                                         {
                                             Ok(()) => {
                                                 phase.set(Phase::Finished);
                                                 pending_update.set(None);
-                                                status.set(
-                                                    "Update installed. Restart the app to launch the new version."
-                                                        .to_string(),
-                                                );
+                                                status
+                                                    .set(
+                                                        "Update installed. Restart the app to launch the new version."
+                                                            .to_string(),
+                                                    );
                                             }
                                             Err(error) => {
                                                 phase.set(Phase::Error);
@@ -144,7 +142,9 @@ fn App() -> Element {
                                 "Download and install"
                             }
                         },
-                        None => rsx! { Fragment {} },
+                        None => rsx! {
+                            Fragment {}
+                        },
                     }
                 }
             }
@@ -167,13 +167,9 @@ fn App() -> Element {
             }
 
             if let Some(update) = pending_update() {
-                div {
-                    style: "padding: 1rem; border: 1px solid #ddd; border-radius: 0.75rem; margin-top: 1rem;",
+                div { style: "padding: 1rem; border: 1px solid #ddd; border-radius: 0.75rem; margin-top: 1rem;",
 
-                    h2 {
-                        style: "margin-top: 0;",
-                        "Available release"
-                    }
+                    h2 { style: "margin-top: 0;", "Available release" }
 
                     p {
                         strong { "Current version: " }
@@ -197,8 +193,7 @@ fn App() -> Element {
                 }
             }
 
-            p {
-                style: "margin-top: 1.5rem; color: #666;",
+            p { style: "margin-top: 1.5rem; color: #666;",
                 "Set GITHUB_TOKEN to access private repositories or avoid anonymous rate limits. "
                 "Replace the placeholder owner, repo, version, and minisign public key with your app's real values."
             }

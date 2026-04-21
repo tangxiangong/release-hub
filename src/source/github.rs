@@ -86,7 +86,11 @@ impl GitHubSource {
     }
 
     /// Creates a GitHub-backed source from a custom Octocrab client.
-    pub fn with_client(owner: impl Into<String>, repo: impl Into<String>, client: Octocrab) -> Self {
+    pub fn with_client(
+        owner: impl Into<String>,
+        repo: impl Into<String>,
+        client: Octocrab,
+    ) -> Self {
         Self {
             client,
             owner: owner.into(),
