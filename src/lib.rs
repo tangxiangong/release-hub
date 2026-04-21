@@ -23,7 +23,6 @@ pub mod source;
 pub use source::*;
 mod target;
 pub use target::*;
-pub mod github;
 mod release;
 pub use release::{ReleaseManifestPlatform, RemoteRelease, RemoteReleaseInner, Update};
 #[cfg(target_os = "macos")]
@@ -39,6 +38,6 @@ mod macos;
 /// elevation using `ShellExecuteW` and the `runas` verb. Handles common error
 /// cases like access denied or user-cancelled elevation.
 mod windows;
-pub use github::*;
+pub use source::github::GitHubSource;
 mod utils;
 pub use utils::{BundleType, extract_path_from_executable};

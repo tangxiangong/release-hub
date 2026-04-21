@@ -1,8 +1,5 @@
 pub mod endpoint;
-
-pub mod github {
-    pub use crate::github::*;
-}
+pub mod github;
 
 use crate::RemoteRelease;
 
@@ -25,3 +22,4 @@ pub trait ReleaseSource: Send + Sync {
 }
 
 pub use endpoint::EndpointSource;
+pub use github::GitHubSource;
