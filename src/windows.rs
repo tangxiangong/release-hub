@@ -27,7 +27,7 @@ static TEMP_FILE_KEEPER: Mutex<Option<tempfile::TempPath>> = Mutex::new(None);
 
 impl Update {
     pub(crate) fn install_windows(&self, bytes: &[u8]) -> Result<()> {
-        install_windows_with_label(bytes, env!("CARGO_PKG_NAME"), &self.version)
+        install_windows_with_label(bytes, &self.app_name, &self.version)
     }
 }
 

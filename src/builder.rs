@@ -10,10 +10,12 @@ use crate::{
     Config, EndpointSource, Error, InstallerKind, ReleaseSource, Result, SourceRequest, TargetInfo,
     Update, extract_path_from_executable,
 };
+use http::header::ACCEPT;
 use http::{
     HeaderName,
     header::{HeaderMap, HeaderValue},
 };
+use reqwest::ClientBuilder;
 use semver::Version;
 use std::{
     env::current_exe,
@@ -23,6 +25,8 @@ use std::{
     time::Duration,
 };
 use url::Url;
+
+const UPDATER_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
 pub type VersionComparator =
     Arc<dyn Fn(Version, crate::RemoteRelease) -> bool + Send + Sync + 'static>;
@@ -232,6 +236,14 @@ impl Updater {
             installer_kind: InstallerKind::from_path(Path::new(
                 release.download_url(&self.target)?.path(),
             ))?,
+            headers: self.headers.clone(),
+            timeout: self.timeout,
+            proxy: self.proxy.clone(),
+            no_proxy: self.no_proxy,
+            dangerous_accept_invalid_certs: self.config.dangerous_accept_invalid_certs,
+            dangerous_accept_invalid_hostnames: self.config.dangerous_accept_invalid_hostnames,
+            extract_path: self.extract_path.clone(),
+            app_name: self.app_name.clone(),
         }))
     }
 
@@ -272,7 +284,34 @@ impl Update {
     where
         C: FnMut(usize),
     {
-        let response = reqwest::get(self.download_url.clone()).await?;
+        let mut headers = self.headers.clone();
+        if !headers.contains_key(ACCEPT) {
+            headers.insert(ACCEPT, HeaderValue::from_static("application/octet-stream"));
+        }
+
+        let mut request = ClientBuilder::new().user_agent(UPDATER_USER_AGENT);
+        if self.dangerous_accept_invalid_certs {
+            request = request.danger_accept_invalid_certs(true);
+        }
+        if self.dangerous_accept_invalid_hostnames {
+            request = request.danger_accept_invalid_hostnames(true);
+        }
+        if let Some(timeout) = self.timeout {
+            request = request.timeout(timeout);
+        }
+        if self.no_proxy {
+            request = request.no_proxy();
+        } else if let Some(ref proxy) = self.proxy {
+            let proxy = reqwest::Proxy::all(proxy.as_str())?;
+            request = request.proxy(proxy);
+        }
+
+        let response = request
+            .build()?
+            .get(self.download_url.clone())
+            .headers(headers)
+            .send()
+            .await?;
         if !response.status().is_success() {
             return Err(Error::Network(format!(
                 "Download request failed with status: {}",

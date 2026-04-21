@@ -1,6 +1,7 @@
+use http::HeaderMap;
 use semver::Version;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 use time::OffsetDateTime;
 use url::Url;
 
@@ -112,4 +113,12 @@ pub struct Update {
     pub pubkey: String,
     pub target: String,
     pub installer_kind: InstallerKind,
+    pub headers: HeaderMap,
+    pub timeout: Option<Duration>,
+    pub proxy: Option<Url>,
+    pub no_proxy: bool,
+    pub dangerous_accept_invalid_certs: bool,
+    pub dangerous_accept_invalid_hostnames: bool,
+    pub extract_path: PathBuf,
+    pub app_name: String,
 }

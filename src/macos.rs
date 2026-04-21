@@ -6,11 +6,10 @@
 // Copyright (c) 2015 - Present - The Tauri Programme within The Commons Conservancy.
 // Licensed under MIT OR MIT/Apache-2.0
 
-use crate::{Error, Result, Update, Updater, extract_path_from_executable};
+use crate::{Error, Result, Update, Updater};
 use fs_err as fs;
 use osakit::{Language, Script};
 use std::{
-    env::current_exe,
     fs::Permissions,
     io::Cursor,
     os::unix::fs::PermissionsExt,
@@ -21,7 +20,7 @@ use zip::ZipArchive;
 
 impl Update {
     pub(crate) fn install_macos(&self, bytes: &[u8]) -> Result<()> {
-        install_macos_at(&current_extract_path()?, bytes)
+        install_macos_at(&self.extract_path, bytes)
     }
 }
 
@@ -33,10 +32,6 @@ impl Updater {
     pub(crate) fn relaunch_inner(&self) -> Result<()> {
         relaunch_macos_at(&self.extract_path)
     }
-}
-
-fn current_extract_path() -> Result<PathBuf> {
-    extract_path_from_executable(&current_exe()?)
 }
 
 fn extract_zip(bytes: &[u8], extract_path: &Path) -> Result<Vec<PathBuf>> {
