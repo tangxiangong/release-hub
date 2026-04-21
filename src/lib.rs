@@ -35,5 +35,5 @@ mod macos;
 /// cases like access denied or user-cancelled elevation.
 mod windows;
 pub use github::*;
-pub mod utils;
+mod utils;
 pub use utils::{extract_path_from_executable, BundleType};
