@@ -98,6 +98,61 @@ The updater selects the entry matching the current target, downloads the artifac
 verifies it with the configured public key, and then runs the install path for that
 artifact type.
 
+## Installer naming requirements
+
+Downloaded installer artifacts must follow these naming rules so `release-hub` can
+recognize the package type and, when using GitHub Releases, match the asset to the
+current target.
+
+### Supported file extensions
+
+Installer filenames must end with one of the supported package extensions:
+
+- macOS: `.app.tar.gz`, `.app.zip`
+- Linux: `.AppImage`, `.deb`, `.rpm`
+- Windows: `.msi`, `.exe`
+
+If the filename does not end with one of these extensions, the installer format
+cannot be resolved.
+
+### Target marker for GitHub release assets
+
+When using `GitHubSource`, the release asset name must contain the target marker for
+the platform it serves. Canonical target markers are:
+
+- `darwin-aarch64`
+- `linux-x86_64`
+- `windows-x86_64`
+
+GitHub asset matching also accepts the same marker with `-` and `_` swapped, such as
+`linux_x86_64` or `windows_x86_64`.
+
+The rest of the filename is flexible, but the asset name must include a recognizable
+target marker and end with a supported installer extension.
+
+### Signature file requirement
+
+Each installer asset must have a paired detached minisign signature asset using one
+of these filenames:
+
+- `<installer-name>.sig`
+- `<installer-name>.minisig`
+
+Examples:
+
+- `MyApp-darwin-aarch64.app.tar.gz`
+- `MyApp-darwin-aarch64.app.tar.gz.sig`
+- `MyApp-linux-x86_64.AppImage`
+- `MyApp-linux-x86_64.AppImage.minisig`
+- `MyApp-windows-x86_64.msi`
+- `MyApp-windows-x86_64.msi.sig`
+
+### Manifest note
+
+When using manifest endpoints directly, the filename itself does not need to include
+the target marker because target selection happens through the `platforms` map. The
+artifact URL must still point to a file with a supported installer extension.
+
 ## GitHub releases as a source adapter
 
 Use `GitHubSource` when your release metadata lives in GitHub Releases but you still
