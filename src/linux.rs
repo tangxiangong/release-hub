@@ -1,3 +1,5 @@
+//! Linux-specific installation helpers.
+
 use crate::{Error, InstallerKind, Result, Update};
 use fs_err as fs;
 use std::{
@@ -16,6 +18,9 @@ pub struct LinuxInstallCommand {
 
 impl LinuxInstallCommand {
     /// Builds the Linux install command for a staged artifact.
+    ///
+    /// `.deb` and `.rpm` artifacts are installed through `pkexec`, while
+    /// AppImages are staged through `install` before the final atomic swap.
     pub fn for_kind(kind: InstallerKind, artifact: PathBuf) -> Result<Self> {
         let path = artifact.display().to_string();
         match kind {

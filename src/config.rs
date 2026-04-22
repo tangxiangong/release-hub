@@ -1,3 +1,5 @@
+//! Static updater configuration shared across all release-source implementations.
+
 use serde::{Deserialize, Deserializer, de::Error as DeError};
 use std::ffi::OsString;
 use url::Url;
@@ -16,6 +18,11 @@ pub struct WindowsConfig {
 }
 
 /// Persistent updater configuration shared by all release sources.
+///
+/// This struct is typically assembled once during application startup and then
+/// passed into [`crate::UpdaterBuilder`]. It controls endpoint defaults,
+/// Minisign verification, and a few escape hatches for local development or
+/// unusual networking environments.
 #[derive(Debug, Clone, Default)]
 pub struct Config {
     /// Allows non-HTTPS update endpoints. Intended for development only.
@@ -34,6 +41,9 @@ pub struct Config {
 
 impl Config {
     /// Validates the configuration invariants enforced by this crate.
+    ///
+    /// In particular, endpoint URLs must use `https` unless
+    /// [`Self::dangerous_insecure_transport_protocol`] is enabled.
     pub fn validate(&self) -> crate::Result<()> {
         validate_endpoints(&self.endpoints, self.dangerous_insecure_transport_protocol)
     }

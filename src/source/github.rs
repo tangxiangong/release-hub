@@ -1,3 +1,5 @@
+//! GitHub Release-backed source adapter.
+
 use crate::{
     Error, InstallerKind, ReleaseManifestPlatform, ReleaseSource, RemoteRelease,
     RemoteReleaseInner, Result, SourceFuture, SourceRequest,
@@ -38,6 +40,10 @@ enum SignatureSource<'a> {
 }
 
 /// Release source backed by the latest GitHub Release of a repository.
+///
+/// Assets are matched by target marker in the filename, and each installer
+/// asset must have a sibling `.sig` or `.minisig` asset with the same base
+/// name.
 #[derive(Debug, Clone)]
 pub struct GitHubSource {
     client: octocrab::Octocrab,
@@ -49,6 +55,9 @@ pub struct GitHubSource {
 
 impl GitHubSource {
     /// Creates a GitHub-backed release source for production use.
+    ///
+    /// Anonymous requests are subject to GitHub API rate limits and only work
+    /// for public repositories.
     pub fn new(owner: impl Into<String>, repo: impl Into<String>) -> Self {
         Self {
             client: Octocrab::default(),
@@ -86,6 +95,9 @@ impl GitHubSource {
     }
 
     /// Creates a GitHub-backed source from a custom Octocrab client.
+    ///
+    /// Use this when you need a preconfigured GitHub client with custom
+    /// middleware, base URLs, or authentication strategy.
     pub fn with_client(
         owner: impl Into<String>,
         repo: impl Into<String>,

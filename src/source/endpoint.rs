@@ -1,3 +1,5 @@
+//! HTTP endpoint-backed release source.
+
 use crate::{ReleaseSource, RemoteRelease, Result, SourceFuture, SourceRequest};
 use url::Url;
 
@@ -9,6 +11,10 @@ pub struct EndpointSource {
 
 impl EndpointSource {
     /// Creates an endpoint-backed release source.
+    ///
+    /// The provided endpoints should return JSON compatible with
+    /// [`crate::RemoteRelease`]. The current implementation fetches the first
+    /// configured endpoint.
     pub fn new(endpoints: Vec<Url>) -> Self {
         Self { endpoints }
     }

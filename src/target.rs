@@ -1,3 +1,5 @@
+//! Platform and installer target modeling.
+
 use crate::{Error, Result};
 use std::path::Path;
 
@@ -60,6 +62,8 @@ pub struct TargetInfo {
 
 impl TargetInfo {
     /// Converts structured system information into the crate's canonical target string.
+    ///
+    /// For example, macOS on Apple Silicon becomes `darwin-aarch64`.
     pub fn from_system(system: SystemInfo) -> Self {
         let os = match system.os {
             OS::Linux => "linux",
@@ -79,6 +83,8 @@ impl TargetInfo {
 
 impl SystemInfo {
     /// Detects the current host operating system and architecture.
+    ///
+    /// Only the platform combinations supported by this crate are recognized.
     pub fn current() -> Result<Self> {
         let os = if cfg!(target_os = "linux") {
             OS::Linux
@@ -102,6 +108,9 @@ impl SystemInfo {
 
 impl InstallerKind {
     /// Infers the installer format from an artifact filename or path.
+    ///
+    /// Matching is based on the final filename suffix, such as `.AppImage`,
+    /// `.app.tar.gz`, or `.msi`.
     pub fn from_path(path: &Path) -> Result<Self> {
         let name = path
             .file_name()

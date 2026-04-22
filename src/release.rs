@@ -1,3 +1,5 @@
+//! Neutral release and update models shared across release sources.
+
 use http::HeaderMap;
 use semver::Version;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
@@ -20,9 +22,10 @@ pub struct ReleaseManifestPlatform {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(untagged)]
 pub enum RemoteReleaseInner {
-    /// Single-target dynamic release payload.
+    /// Single-target payload where one artifact implicitly applies to the
+    /// active target.
     Dynamic(ReleaseManifestPlatform),
-    /// Static multi-target release payload keyed by target string.
+    /// Multi-target payload keyed by canonical target string.
     Static {
         /// Mapping from target string to downloadable artifact metadata.
         platforms: HashMap<String, ReleaseManifestPlatform>,
@@ -97,6 +100,9 @@ impl<'de> Deserialize<'de> for RemoteRelease {
 
 impl RemoteRelease {
     /// Returns the download URL for the requested target.
+    ///
+    /// Dynamic releases always return the single embedded artifact URL, while
+    /// static releases look up the target in their `platforms` map.
     pub fn download_url(&self, target: &str) -> crate::Result<&Url> {
         match &self.data {
             RemoteReleaseInner::Dynamic(platform) => Ok(&platform.url),
@@ -120,6 +126,9 @@ impl RemoteRelease {
 }
 
 /// Ready-to-download update candidate produced by [`crate::Updater::check`].
+///
+/// This is the fully resolved, target-specific update payload after source
+/// selection, manifest decoding, and installer-kind detection.
 #[derive(Debug, Clone)]
 pub struct Update {
     /// Current application version.

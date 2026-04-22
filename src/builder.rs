@@ -1,3 +1,5 @@
+//! Builder and runtime updater APIs.
+
 // Copyright (c) 2025 BibCiTeX Contributors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //
@@ -29,6 +31,9 @@ use url::Url;
 const UPDATER_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
 /// Custom version comparator used to override the default semver `>` update check.
+///
+/// The closure receives the current application version and the fetched remote
+/// release model. Return `true` to treat the release as an update.
 pub type VersionComparator =
     Arc<dyn Fn(Version, crate::RemoteRelease) -> bool + Send + Sync + 'static>;
 
@@ -84,6 +89,10 @@ enum InstallAction {
 }
 
 /// Configures and creates an [`Updater`].
+///
+/// This builder is the main integration point for application code. It merges
+/// static [`Config`] values with per-instance overrides such as a custom
+/// [`ReleaseSource`], request headers, proxy settings, and installer arguments.
 pub struct UpdaterBuilder {
     app_name: String,
     current_version: Version,
@@ -101,6 +110,8 @@ pub struct UpdaterBuilder {
 
 impl UpdaterBuilder {
     /// Creates a new updater builder from application metadata and static configuration.
+    ///
+    /// `current_version` must be a valid semantic version string.
     pub fn new(app_name: &str, current_version: &str, config: Config) -> Self {
         Self {
             app_name: app_name.to_owned(),
@@ -119,18 +130,27 @@ impl UpdaterBuilder {
     }
 
     /// Overrides the detected target string used when fetching release metadata.
+    ///
+    /// Target strings usually look like `linux-x86_64` or `darwin-aarch64`.
     pub fn target(mut self, target: impl Into<String>) -> Self {
         self.target = Some(target.into());
         self
     }
 
     /// Sets a custom release source implementation.
+    ///
+    /// When omitted, the builder falls back to [`EndpointSource`] using
+    /// [`Config::endpoints`].
     pub fn source(mut self, source: Box<dyn ReleaseSource>) -> Self {
         self.source = Some(source);
         self
     }
 
     /// Overrides the default version comparison logic.
+    ///
+    /// By default, `release-hub` treats `remote.version > current_version` as
+    /// an update. Provide a comparator here when you need custom channels or
+    /// policies.
     pub fn version_comparator<F>(mut self, comparator: F) -> Self
     where
         F: Fn(Version, crate::RemoteRelease) -> bool + Send + Sync + 'static,
@@ -216,6 +236,10 @@ impl UpdaterBuilder {
     }
 
     /// Builds an [`Updater`] from the accumulated configuration.
+    ///
+    /// This validates the static config, resolves the effective target and
+    /// install path, and materializes either the custom release source or the
+    /// default endpoint-backed source.
     pub fn build(self) -> Result<Updater> {
         self.config.validate()?;
 
@@ -265,6 +289,9 @@ impl UpdaterBuilder {
 }
 
 /// Updater instance capable of checking, downloading and installing updates.
+///
+/// Instances are cheap to reuse and keep the last successfully observed remote
+/// version for introspection through [`Self::latest_version`].
 pub struct Updater {
     /// Application name used by platform backends and staging paths.
     pub app_name: String,
@@ -299,6 +326,9 @@ impl Updater {
     }
 
     /// Fetches release metadata and returns an [`Update`] when a newer version is available.
+    ///
+    /// The returned [`Update`] is already narrowed to the current target and
+    /// contains the resolved installer URL, signature, and install strategy.
     pub async fn check(&self) -> Result<Option<Update>> {
         let request = SourceRequest::new(self.target.clone());
         let release = self.source.fetch(&request).await?;
@@ -343,6 +373,9 @@ impl Updater {
     }
 
     /// Convenience helper that checks for an update and downloads/installs it when present.
+    ///
+    /// Returns `Ok(true)` when an update was found and installed, or `Ok(false)`
+    /// when the current version is already up to date.
     pub async fn update<C: FnMut(usize)>(&self, on_chunk: C) -> Result<bool> {
         if let Some(update) = self.check().await? {
             update.download_and_install(on_chunk).await?;
@@ -352,17 +385,19 @@ impl Updater {
         }
     }
 
-    /// Downloads the updater package and returns it as bytes.
+    /// Downloads the updater package for an [`Update`] and returns it as bytes.
     pub async fn download<C: FnMut(usize)>(&self, update: &Update, on_chunk: C) -> Result<Vec<u8>> {
         update.download(on_chunk).await
     }
 
-    /// Installs the updater package downloaded by [`Updater::download`].
+    /// Installs artifact bytes previously returned by [`Updater::download`].
     pub fn install(&self, bytes: impl AsRef<[u8]>) -> Result<()> {
         self.install_inner(bytes.as_ref())
     }
 
     /// Relaunches the application using the current platform backend.
+    ///
+    /// Relaunch support is currently implemented on macOS and Windows.
     pub fn relaunch(&self) -> Result<()> {
         self.relaunch_inner()
     }
@@ -388,6 +423,9 @@ impl Update {
     }
 
     /// Downloads the selected artifact and verifies its detached minisign signature.
+    ///
+    /// The chunk callback receives the total number of bytes currently fetched
+    /// for this download operation.
     pub async fn download<C>(&self, mut on_chunk: C) -> Result<Vec<u8>>
     where
         C: FnMut(usize),
